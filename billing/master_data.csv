@@ -1,0 +1,22 @@
+sku_id,sku_name,is_billable,category,free_usage_cap,tier_number,tier_limit,tier_cpm
+FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,1,100000,7.00
+FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,2,500000,5.60
+FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,3,1000000,4.20
+FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,4,5000000,2.10
+FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,5,,0.53
+BAC8-4E68-E261,Geocoding,True,Maps,10000,1,100000,5.00
+BAC8-4E68-E261,Geocoding,True,Maps,10000,2,500000,4.00
+BAC8-4E68-E261,Geocoding,True,Maps,10000,3,1000000,3.00
+BAC8-4E68-E261,Geocoding,True,Maps,10000,4,5000000,1.50
+BAC8-4E68-E261,Geocoding,True,Maps,10000,5,,0.38
+FC5C-DF28-543F,Places Details,True,Places,5000,1,100000,17.00
+FC5C-DF28-543F,Places Details,True,Places,5000,2,500000,13.60
+FC5C-DF28-543F,Places Details,True,Places,5000,3,1000000,10.20
+FC5C-DF28-543F,Places Details,True,Places,5000,4,5000000,5.10
+FC5C-DF28-543F,Places Details,True,Places,5000,5,,1.28
+7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,1,100000,2.83
+7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,2,500000,2.27
+7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,3,1000000,1.70
+7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,4,5000000,0.85
+7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,5,,0.21
+tax.vat,세금,False,Tax,0,,,
