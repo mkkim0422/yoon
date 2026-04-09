@@ -1,5 +1,5 @@
 import io
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import xlsxwriter
 
 
@@ -61,12 +61,13 @@ def _write_invoice_sheet(wb, line_items, company_name, billing_month, exchange_r
             continue
 
         n = len(item.tier_breakdown)
+        billable_disp = item.billable_usage if item.billable_usage > 0 else "-"
         if n == 0:
             # tier 정의가 없는 SKU (is_billable=False 등) — 1행으로 출력
             ws.write(curr, 0, item.sku_name, B)
             ws.write(curr, 1, item.total_usage, N)
-            ws.write(curr, 2, f"-{item.free_cap_applied:,}", N)
-            ws.write(curr, 3, item.billable_usage, N)
+            ws.write(curr, 2, f"-{item.free_usage_cap:,}", N)
+            ws.write(curr, 3, billable_disp, N)
             ws.write(curr, 4, "-", B)
             ws.write(curr, 5, "-", N)
             ws.write(curr, 6, "-", B)
@@ -77,13 +78,13 @@ def _write_invoice_sheet(wb, line_items, company_name, billing_month, exchange_r
                 ws.merge_range(curr, 0, curr + n - 1, 0, item.sku_name, B)
                 ws.merge_range(curr, 1, curr + n - 1, 1, item.total_usage, N)
                 ws.merge_range(curr, 2, curr + n - 1, 2,
-                               f"-{item.free_cap_applied:,}", N)
-                ws.merge_range(curr, 3, curr + n - 1, 3, item.billable_usage, N)
+                               f"-{item.free_usage_cap:,}", N)
+                ws.merge_range(curr, 3, curr + n - 1, 3, billable_disp, N)
             else:
                 ws.write(curr, 0, item.sku_name, B)
                 ws.write(curr, 1, item.total_usage, N)
-                ws.write(curr, 2, f"-{item.free_cap_applied:,}", N)
-                ws.write(curr, 3, item.billable_usage, N)
+                ws.write(curr, 2, f"-{item.free_usage_cap:,}", N)
+                ws.write(curr, 3, billable_disp, N)
 
             for i, tb in enumerate(item.tier_breakdown):
                 ws.write(curr + i, 4,
@@ -96,18 +97,20 @@ def _write_invoice_sheet(wb, line_items, company_name, billing_month, exchange_r
 
         # 소계 행
         ws.merge_range(curr, 0, curr, 4, "소계", S)
-        ws.write(curr, 5, item.billable_usage, S)
+        ws.write(curr, 5, item.billable_usage if item.billable_usage > 0 else "-", S)
         ws.write(curr, 6, "", S)
         ws.write(curr, 7, float(item.subtotal_usd), SD)
         t_usd += item.subtotal_usd
         curr += 1
 
     # ── 합계 / 환율 / 청구금액 ────────────────────────────────────────────────
-    t_krw = (t_usd * Decimal(str(exchange_rate)) * Decimal(str(margin_rate))
-             ).quantize(Decimal("1"))
+    # 모든 tier amount 누적 후 최종 단계에서만 1회 반올림
+    t_usd_rounded = t_usd.quantize(Decimal("1"), ROUND_HALF_UP)
+    t_krw = (t_usd_rounded * Decimal(str(exchange_rate)) * Decimal(str(margin_rate))
+             ).quantize(Decimal("1"), ROUND_HALF_UP)
 
     ws.merge_range(curr,     0, curr,     6, "합        계(USD)", B)
-    ws.write      (curr,     7, float(t_usd), D)
+    ws.write      (curr,     7, float(t_usd_rounded), D)
     ws.merge_range(curr + 1, 0, curr + 1, 6,
                    f"환        율(적용 환율: {exchange_rate:,.2f})", B)
     ws.write      (curr + 1, 7, float(exchange_rate), D)

@@ -22,7 +22,7 @@ def calculate_billing(usage_rows, sku_master, exchange_rate, margin_rate=Decimal
         results.append(BillingLineItem(
             billing_month="", project_id="", project_name="",
             sku_id=sku_id, sku_name=sku.sku_name, total_usage=total_usage,
-            free_cap_applied=free_cap_applied, billable_usage=billable_usage,
+            free_usage_cap=free_cap, free_cap_applied=free_cap_applied, billable_usage=billable_usage,
             tier_breakdown=tier_breakdown, subtotal_usd=subtotal_usd,
             exchange_rate=exchange_rate, margin_rate=margin_rate, final_krw=final_krw,
         ))

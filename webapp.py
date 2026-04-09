@@ -15,7 +15,7 @@ import streamlit as st
 from billing.engine import calculate_billing, calculate_billing_by_project
 from billing.loader import load_sku_master, load_usage_rows, parse_gmp_price_excel
 from billing.preprocessor import extract_company_names, preprocess_usage_file
-from excel_formatter import create_report_excel
+from invoice_generator import generate_formatted_invoice
 
 # ── 경로 상수 ─────────────────────────────────────────────────────────────────
 MASTER_CSV = Path(__file__).parent / "billing" / "master_data.csv"
@@ -438,15 +438,13 @@ with tab1:
                     line_items  = calculate_billing(usage_rows, sku_master, _ex, _mr)
                     proj_results = calculate_billing_by_project(usage_rows, sku_master, _ex, _mr)
 
-                    prog.progress(78, text="📊 발송용 엑셀 리포트 생성 중...")
-                    excel_bytes = create_report_excel(
-                        line_items      = line_items,
-                        company_name    = selected_company or "전체",
-                        billing_month   = billing_month,
-                        exchange_rate   = exchange_rate,
-                        margin_rate     = margin_rate,
-                        sku_master_rows = sku_rows,
-                        proj_results    = proj_results,
+                    prog.progress(78, text="📊 인보이스 엑셀 생성 중...")
+                    excel_bytes = generate_formatted_invoice(
+                        line_items    = line_items,
+                        company_name  = selected_company or "전체",
+                        billing_month = billing_month,
+                        exchange_rate = _ex,
+                        margin_rate   = _mr,
                     )
 
                     prog.progress(100, text="✅ 완료!")

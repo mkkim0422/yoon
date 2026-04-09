@@ -58,6 +58,7 @@ class BillingLineItem:
     sku_id: str
     sku_name: str
     total_usage: int
+    free_usage_cap: int         # SKU 고정 무료 한도 (표기용)
     free_cap_applied: int       # 실제 차감된 무료 사용량
     billable_usage: int
     tier_breakdown: list[TierBreakdown]
