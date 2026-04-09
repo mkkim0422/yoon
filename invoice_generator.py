@@ -97,6 +97,7 @@ def generate_formatted_invoice(
     margin_rate: Decimal,
     invoice_date: str | None = None,
     output_path: str | Path | None = None,
+    bank_name: str = "하나은행",
 ) -> bytes | None:
     """
     t1 레이아웃과 동일한 인보이스 Excel 을 생성한다.
@@ -114,7 +115,7 @@ def generate_formatted_invoice(
     _write_invoice_info(ws, company_name, billing_month, invoice_date)
     _write_table_header(ws)
     last_data_row = _write_data_rows(ws, line_items)
-    bottom_row = _write_summary_rows(ws, line_items, exchange_rate, margin_rate, last_data_row)
+    bottom_row = _write_summary_rows(ws, line_items, exchange_rate, margin_rate, last_data_row, billing_month, bank_name)
     _write_vat_note(ws, bottom_row)
     _write_bottom_image(ws, bottom_row + 2)
     _set_freeze_pane(ws)
@@ -386,31 +387,38 @@ def _write_data_rows(ws, line_items: list) -> int:
 # 내부 헬퍼: 합계 / 환율 / 청구금액 행
 # ─────────────────────────────────────────────────────────────────────────────
 def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
-                         last_data_row: int) -> int:
+                         last_data_row: int,
+                         billing_month: str = "2026-01",
+                         bank_name: str = "하나은행") -> int:
     """합계 ~ 청구금액 3행을 기록하고 청구금액 행 번호를 반환."""
     t_usd = sum((item.subtotal_usd for item in line_items), Decimal("0"))
     t_usd_rounded = t_usd.quantize(Decimal("1"), ROUND_HALF_UP)
     t_krw = (t_usd_rounded * exchange_rate * margin_rate
              ).quantize(Decimal("1"), ROUND_HALF_UP)
 
+    # 정산월 말일 계산 (YYYY.MM.DD 형식)
+    year, month = int(billing_month[:4]), int(billing_month[5:7])
+    last_day = calendar.monthrange(year, month)[1]
+    last_day_str = f"{year}.{month:02d}.{last_day:02d}"
+
     r = last_data_row + 1
 
-    # ── 합계(USD) ──────────────────────────────────────────────────────────
+    # ── 합계(USD) — 좌측 정렬 ─────────────────────────────────────────────
     ws.merge_cells(start_row=r, start_column=_col(0), end_row=r, end_column=_col(6))
     cell = ws.cell(row=r, column=_col(0), value="합        계(USD)")
     cell.font      = _font(bold=True)
-    cell.alignment = _align("center", "center")
+    cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
     _apply_border_merged(ws, r, _col(0), r, _col(6))
     _cell_write(ws, r, _col(7), float(t_usd_rounded), h="right", num="$#,##0.00", bold=True)
 
-    # ── 환율 ───────────────────────────────────────────────────────────────
+    # ── 환율 — 동적 문구 + 좌측 정렬 ────────────────────────────────────
     r += 1
     ws.merge_cells(start_row=r, start_column=_col(0), end_row=r, end_column=_col(6))
     cell = ws.cell(row=r, column=_col(0),
-                   value=f"환        율(적용 환율: {float(exchange_rate):,.2f})")
+                   value=f"환        율({bank_name} {last_day_str} 최종 송금환율 기준)")
     cell.font      = _font(bold=True)
-    cell.alignment = _align("center", "center")
+    cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
     _apply_border_merged(ws, r, _col(0), r, _col(6))
     _cell_write(ws, r, _col(7), float(exchange_rate), h="right",

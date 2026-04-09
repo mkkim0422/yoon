@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from billing.engine import calculate_billing, calculate_billing_by_project
 from billing.loader import load_sku_master, load_usage_rows, parse_gmp_price_excel
@@ -260,6 +261,10 @@ with st.sidebar:
         min_value=500.0, max_value=3000.0,
         value=1350.0, step=1.0, format="%g",
     )
+    bank_name = st.text_input(
+        "🏦 은행",
+        value="하나은행",
+    )
     margin_pct = st.number_input(
         "📈 마진율 (%)",
         min_value=0.0, max_value=100.0,
@@ -303,6 +308,78 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ── Selectbox 포커스 시 텍스트 전체 선택 (Ctrl+A 지원) ───────────────────────
+# react-select 기반 selectbox는 선택된 값이 라벨로 렌더링되어 Ctrl+A가 동작하지 않음.
+# MutationObserver로 input 생성을 감지하고, focus 시 select()를 호출해 해결.
+components.html("""
+<script>
+(function () {
+    /* Baseweb Select 구조:
+       [data-baseweb="select"]
+         div (control)
+           div (value-container)
+             span  ← 선택된 값 텍스트 ("11st" 등)  -- input.value 는 항상 ""
+             div
+               input[type=text]  ← 실제 포커스 대상
+    */
+    function injectValueAndSelectAll(inp) {
+        // 이미 검색 텍스트가 있으면 기본 Ctrl+A 동작 허용
+        if (inp.value !== '') return false;
+
+        var selectEl = inp.closest('[data-baseweb="select"]');
+        if (!selectEl) return false;
+
+        // 텍스트가 있고 input 자신이 아닌 leaf 요소 탐색
+        var nodes = selectEl.querySelectorAll('span, div');
+        var displayText = '';
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            if (el.children.length === 0 && !el.contains(inp) && el !== inp) {
+                var t = el.textContent.trim();
+                if (t) { displayText = t; break; }
+            }
+        }
+        if (!displayText) return false;
+
+        // React controlled input 우회: native setter + input 이벤트
+        var nativeSetter = Object.getOwnPropertyDescriptor(
+            window.parent.HTMLInputElement.prototype, 'value'
+        ).set;
+        nativeSetter.call(inp, displayText);
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+
+        setTimeout(function () { inp.select(); }, 0);
+        return true;
+    }
+
+    function patch() {
+        try {
+            var doc = window.parent.document;
+            doc.querySelectorAll('[data-baseweb="select"] input').forEach(function (inp) {
+                if (inp._salPatched) return;
+                inp._salPatched = true;
+
+                inp.addEventListener('keydown', function (e) {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                        if (injectValueAndSelectAll(inp)) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    }
+                });
+            });
+        } catch (e) {}
+    }
+
+    new MutationObserver(patch).observe(
+        window.parent.document.body,
+        { subtree: true, childList: true }
+    );
+    patch();
+})();
+</script>
+""", height=0)
 
 # ── 탭 UI ─────────────────────────────────────────────────────────────────────
 tab1, tab2 = st.tabs(["🚀  통합 정산 실행", "⚙️  SKU 단가 관리"])
@@ -395,20 +472,18 @@ with tab1:
 
         # ── 결제 계정 선택 + 실행 버튼 ───────────────────────────────────────
         st.markdown("#### 정산 대상 선택")
-        col_sel, col_gap, col_btn = st.columns([3, 0.15, 1])
+        col_sel, col_btn = st.columns([4, 1], vertical_alignment="bottom")
         with col_sel:
             if companies:
                 selected_company = st.selectbox(
                     "결제 계정 (Billing Account Name)",
                     options=companies,
-                    label_visibility="collapsed",
                 )
             else:
                 selected_company = None
                 st.info("파일에서 결제 계정 정보를 찾을 수 없습니다. 전체 데이터를 처리합니다.")
 
         with col_btn:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             run_button = st.button(
                 "▶  정산 시작",
                 type="primary",
@@ -445,6 +520,7 @@ with tab1:
                         billing_month = billing_month,
                         exchange_rate = _ex,
                         margin_rate   = _mr,
+                        bank_name     = bank_name,
                     )
 
                     prog.progress(100, text="✅ 완료!")
