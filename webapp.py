@@ -487,7 +487,7 @@ with tab1:
             run_button = st.button(
                 "▶  정산 시작",
                 type="primary",
-                use_container_width=True,
+                width='stretch',
             )
 
         # ── 정산 실행 ─────────────────────────────────────────────────────────
@@ -602,7 +602,7 @@ with tab1:
                 )
                 df_proj["소계(USD)"] = df_proj["소계(USD)"].map("$ {:,.4f}".format)
                 df_proj["최종(KRW)"] = df_proj["최종(KRW)"].map("₩ {:,.0f}".format)
-                st.dataframe(df_proj, use_container_width=True, hide_index=True)
+                st.dataframe(df_proj, width='stretch', hide_index=True)
 
                 st.divider()
 
@@ -613,7 +613,7 @@ with tab1:
                 df_disp["최종(KRW)"] = df_disp["최종(KRW)"].map("₩ {:,.0f}".format)
                 for col in ("총사용량", "무료차감", "청구대상"):
                     df_disp[col] = df_disp[col].map("{:,}".format)
-                st.dataframe(df_disp, use_container_width=True, hide_index=True)
+                st.dataframe(df_disp, width='stretch', hide_index=True)
 
                 # 다운로드 버튼
                 st.divider()
@@ -665,7 +665,7 @@ with tab2:
         st.session_state.master_df,
         column_config=col_cfg,
         num_rows="dynamic",
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         key="sku_editor",
     )
@@ -673,7 +673,7 @@ with tab2:
     col_save, col_dl, col_ul_label = st.columns([1, 1, 1])
 
     with col_save:
-        if st.button("💾  변경사항 저장", type="primary", use_container_width=True):
+        if st.button("💾  변경사항 저장", type="primary", width='stretch'):
             st.session_state.master_df = edited_df.copy()
             _save_master_df(edited_df)
             st.success("✅ 저장 완료 — 정산 계산에 즉시 반영됩니다.")
@@ -685,7 +685,7 @@ with tab2:
             data=csv_bytes,
             file_name="master_data_template.csv",
             mime="text/csv",
-            use_container_width=True,
+            width='stretch',
         )
 
     with col_ul_label:
@@ -781,7 +781,7 @@ with tab2:
 
                     st.dataframe(
                         parsed_df,
-                        use_container_width=True,
+                        width='stretch',
                         hide_index=True,
                         column_config={
                             "free_usage_cap": st.column_config.NumberColumn(
