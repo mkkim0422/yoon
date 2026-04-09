@@ -4,19 +4,59 @@ FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,2,500000,5.60
 FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,3,1000000,4.20
 FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,4,5000000,2.10
 FAF4-3B2D-51B2,Dynamic Maps,True,Maps,10000,5,,0.53
+28A8-3EB4-4595,Directions,True,Routes,10000,1,100000,5.00
+28A8-3EB4-4595,Directions,True,Routes,10000,2,500000,4.00
+28A8-3EB4-4595,Directions,True,Routes,10000,3,1000000,3.00
+28A8-3EB4-4595,Directions,True,Routes,10000,4,5000000,1.50
+28A8-3EB4-4595,Directions,True,Routes,10000,5,,0.38
 BAC8-4E68-E261,Geocoding,True,Maps,10000,1,100000,5.00
 BAC8-4E68-E261,Geocoding,True,Maps,10000,2,500000,4.00
 BAC8-4E68-E261,Geocoding,True,Maps,10000,3,1000000,3.00
 BAC8-4E68-E261,Geocoding,True,Maps,10000,4,5000000,1.50
 BAC8-4E68-E261,Geocoding,True,Maps,10000,5,,0.38
-FC5C-DF28-543F,Places Details,True,Places,5000,1,100000,17.00
-FC5C-DF28-543F,Places Details,True,Places,5000,2,500000,13.60
-FC5C-DF28-543F,Places Details,True,Places,5000,3,1000000,10.20
-FC5C-DF28-543F,Places Details,True,Places,5000,4,5000000,5.10
-FC5C-DF28-543F,Places Details,True,Places,5000,5,,1.28
 7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,1,100000,2.83
 7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,2,500000,2.27
 7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,3,1000000,1.70
 7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,4,5000000,0.85
 7384-2DE4-D388,Autocomplete - Per Request,True,Places,10000,5,,0.21
+B52C-8320-6DC5,Autocomplete without Places Details - Per Session,True,Places,5000,1,100000,17.00
+B52C-8320-6DC5,Autocomplete without Places Details - Per Session,True,Places,5000,2,500000,13.60
+B52C-8320-6DC5,Autocomplete without Places Details - Per Session,True,Places,5000,3,1000000,10.20
+B52C-8320-6DC5,Autocomplete without Places Details - Per Session,True,Places,5000,4,5000000,5.10
+B52C-8320-6DC5,Autocomplete without Places Details - Per Session,True,Places,5000,5,,1.28
+C4B1-8805-63EF,Query Autocomplete - Per Request,True,Places,10000,1,100000,2.83
+C4B1-8805-63EF,Query Autocomplete - Per Request,True,Places,10000,2,500000,2.27
+C4B1-8805-63EF,Query Autocomplete - Per Request,True,Places,10000,3,1000000,1.70
+C4B1-8805-63EF,Query Autocomplete - Per Request,True,Places,10000,4,5000000,0.85
+C4B1-8805-63EF,Query Autocomplete - Per Request,True,Places,10000,5,,0.21
+FC5C-DF28-543F,Places Details,True,Places,5000,1,100000,17.00
+FC5C-DF28-543F,Places Details,True,Places,5000,2,500000,13.60
+FC5C-DF28-543F,Places Details,True,Places,5000,3,1000000,10.20
+FC5C-DF28-543F,Places Details,True,Places,5000,4,5000000,5.10
+FC5C-DF28-543F,Places Details,True,Places,5000,5,,1.28
+75D4-C522-326B,Basic Data,True,Places,0,1,100000,0.00
+75D4-C522-326B,Basic Data,True,Places,0,2,500000,0.00
+75D4-C522-326B,Basic Data,True,Places,0,3,1000000,0.00
+75D4-C522-326B,Basic Data,True,Places,0,4,5000000,0.00
+75D4-C522-326B,Basic Data,True,Places,0,5,,0.00
+F095-CD01-81B2,Contact Data,True,Places,1000,1,100000,3.00
+F095-CD01-81B2,Contact Data,True,Places,1000,2,500000,2.40
+F095-CD01-81B2,Contact Data,True,Places,1000,3,1000000,1.80
+F095-CD01-81B2,Contact Data,True,Places,1000,4,5000000,0.90
+F095-CD01-81B2,Contact Data,True,Places,1000,5,,0.23
+D63D-5CC5-302A,Atmosphere Data,True,Places,1000,1,100000,5.00
+D63D-5CC5-302A,Atmosphere Data,True,Places,1000,2,500000,4.00
+D63D-5CC5-302A,Atmosphere Data,True,Places,1000,3,1000000,3.00
+D63D-5CC5-302A,Atmosphere Data,True,Places,1000,4,5000000,1.50
+D63D-5CC5-302A,Atmosphere Data,True,Places,1000,5,,0.77
+E95A-86C7-7F47,Places - Text Search,True,Places,5000,1,100000,32.00
+E95A-86C7-7F47,Places - Text Search,True,Places,5000,2,500000,25.60
+E95A-86C7-7F47,Places - Text Search,True,Places,5000,3,1000000,19.20
+E95A-86C7-7F47,Places - Text Search,True,Places,5000,4,5000000,9.60
+E95A-86C7-7F47,Places - Text Search,True,Places,5000,5,,2.40
+DC67-3188-2294,Find Place,True,Places,5000,1,100000,17.00
+DC67-3188-2294,Find Place,True,Places,5000,2,500000,13.60
+DC67-3188-2294,Find Place,True,Places,5000,3,1000000,10.20
+DC67-3188-2294,Find Place,True,Places,5000,4,5000000,5.10
+DC67-3188-2294,Find Place,True,Places,5000,5,,1.28
 tax.vat,세금,False,Tax,0,,,

@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from billing.engine import calculate_billing
+from billing.engine import calculate_billing, calculate_billing_by_project
 from billing.loader import load_sku_master, load_usage_rows, parse_gmp_price_excel
 from billing.preprocessor import extract_company_names, preprocess_usage_file
 from excel_formatter import create_report_excel
@@ -433,10 +433,10 @@ with tab1:
                     usage_rows = load_usage_rows(raw_rows)
 
                     prog.progress(52, text="🧮 Waterfall 과금 계산 중...")
-                    line_items = calculate_billing(
-                        usage_rows, sku_master,
-                        Decimal(str(exchange_rate)), Decimal(str(margin_rate)),
-                    )
+                    _ex = Decimal(str(exchange_rate))
+                    _mr = Decimal(str(margin_rate))
+                    line_items  = calculate_billing(usage_rows, sku_master, _ex, _mr)
+                    proj_results = calculate_billing_by_project(usage_rows, sku_master, _ex, _mr)
 
                     prog.progress(78, text="📊 발송용 엑셀 리포트 생성 중...")
                     excel_bytes = create_report_excel(
@@ -446,6 +446,7 @@ with tab1:
                         exchange_rate   = exchange_rate,
                         margin_rate     = margin_rate,
                         sku_master_rows = sku_rows,
+                        proj_results    = proj_results,
                     )
 
                     prog.progress(100, text="✅ 완료!")
