@@ -78,7 +78,7 @@ def main() -> None:
     print(f"[1/3] 필터 결과: {len(coupang)}행 (coupang GMP, 비RESELLER_MARGIN)")
     print(f"      결제 계정: {COMPANY} | 청구 월: {BILLING_MONTH} | 인보이스 날짜: {INVOICE_DATE} | 환율: {EXCHANGE_RATE}")
 
-    # ── 3. SKU별 집계 ─────────────────────────────────────────────────────────
+    # ── 3. 사용량·비용 수치 변환 ──────────────────────────────────────────────
     coupang["_usage"] = (
         pd.to_numeric(
             coupang["사용량"].astype(str).str.replace(",", ""), errors="coerce"
@@ -93,6 +93,7 @@ def main() -> None:
     # SKU ID가 여러 개 있어도 표시 이름으로 통합 (e.g. Places Details)
     coupang["_display_name"] = coupang["SKU ID"].map(GMP_SKU_WHITELIST)
 
+    # ── 3a. SKU별 전체 집계 (Invoice 시트용) ──────────────────────────────────
     agg = (
         coupang.groupby("_display_name")
         .agg(total_usage=("_usage", "sum"), total_krw=("_krw", "sum"))
@@ -112,6 +113,58 @@ def main() -> None:
     total_usd = total_krw / float(EXCHANGE_RATE)
     print("-" * 92)
     print(f'{"합계":45} {"":>15} {int(total_krw):>15,} {total_usd:>12,.2f}')
+
+    # ── 3b. 프로젝트 × SKU별 집계 (Project 시트용) ───────────────────────────
+    # 프로젝트 컬럼명 탐지 (한/영 대응)
+    _proj_name_col = next(
+        (c for c in ["프로젝트 이름", "Project name", "Project Name"] if c in coupang.columns),
+        None,
+    )
+    _proj_id_col = next(
+        (c for c in ["프로젝트 ID", "Project ID"] if c in coupang.columns),
+        None,
+    )
+
+    proj_results = None
+    if _proj_name_col and _proj_id_col:
+        _pagg = (
+            coupang.groupby([_proj_id_col, _proj_name_col, "_display_name"])
+            .agg(p_usage=("_usage", "sum"), p_krw=("_krw", "sum"))
+            .reset_index()
+        )
+
+        proj_results = []
+        for proj_id in sorted(_pagg[_proj_id_col].unique()):
+            _rows = _pagg[_pagg[_proj_id_col] == proj_id]
+            proj_name = _rows[_proj_name_col].iloc[0]
+
+            skus: dict = {}
+            p_total_usd = Decimal("0")
+            p_total_krw = Decimal("0")
+            for _, r in _rows.iterrows():
+                _usage = int(r["p_usage"])
+                _krw   = Decimal(str(int(r["p_krw"])))
+                _usd   = (_krw / EXCHANGE_RATE).quantize(Decimal("0.0001"), ROUND_HALF_UP)
+                skus[r["_display_name"]] = {
+                    "usage":        _usage,
+                    "subtotal_usd": _usd,
+                    "final_krw":    _krw,
+                }
+                p_total_usd += _usd
+                p_total_krw += _krw
+
+            proj_results.append({
+                "proj_id":   proj_id,
+                "proj_name": proj_name,
+                "skus":      skus,
+                "total_usd": p_total_usd,
+                "total_krw": p_total_krw,
+            })
+        print(f"\n[2/3] 프로젝트 수: {len(proj_results)}개")
+        for pr in proj_results:
+            print(f"      {pr['proj_name']:35s}  KRW={int(pr['total_krw']):>15,}")
+    else:
+        print("\n[2/3] '프로젝트 이름'/'프로젝트 ID' 컬럼 없음 → Project 시트 생략")
 
     # ── 4. BillingLineItem 객체 생성 ──────────────────────────────────────────
     from billing.models import BillingLineItem, TierBreakdown
@@ -150,7 +203,7 @@ def main() -> None:
         )
         line_items.append(li)
 
-    # ── 5. 인보이스 생성 ──────────────────────────────────────────────────────
+    # ── 5. 인보이스 생성 (Invoice 시트 + Project 시트) ───────────────────────
     print(f"\n[3/3] 인보이스 생성: {OUTPUT.name}")
     from invoice_generator import generate_formatted_invoice
 
@@ -162,6 +215,7 @@ def main() -> None:
         margin_rate   = MARGIN_RATE,
         invoice_date  = INVOICE_DATE,
         output_path   = OUTPUT,
+        proj_results  = proj_results,   # ← Project 시트 생성
     )
 
     print(f"\n완료 -> {OUTPUT}")

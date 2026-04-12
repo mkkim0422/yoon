@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from invoice_generator import generate_formatted_invoice, _copy_price_list_sheet; print\\('OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"import project_sheet; print\\('import OK'\\)\")"
+    ]
+  }
+}
