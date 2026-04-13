@@ -296,24 +296,17 @@ with st.sidebar:
         "🏦 은행",
         value="하나은행",
     )
-    margin_pct = st.number_input(
-        "📈 마진율 (%)",
-        min_value=0.0, max_value=100.0,
-        value=0.0, step=0.1, format="%g",
-        help="원가에 추가할 마진 백분율 (0 = 마진 없음, Google 원가 그대로)",
-    )
-    margin_rate = (100.0 + margin_pct) / 100.0
+    margin_rate = 1.0
 
     st.divider()
     sku_count = st.session_state.master_df["sku_id"].nunique()
     st.caption(
         f"적용 환율: {exchange_rate:,.0f} KRW/USD\n"
-        f"마진 배수: ×{margin_rate:.4f}\n"
         f"등록 SKU: {sku_count} 종"
     )
 
 # ── 설정 변경 감지 → 이전 결과 자동 무효화 ────────────────────────────────────
-_current_calc_key = f"{billing_month}|{exchange_rate}|{margin_pct}|{bank_name}"
+_current_calc_key = f"{billing_month}|{exchange_rate}|{bank_name}"
 if st.session_state.get("_calc_key") != _current_calc_key:
     st.session_state["_calc_key"] = _current_calc_key
     st.session_state.pop("_last_result", None)
@@ -692,6 +685,7 @@ with tab1:
                     .agg(소계_USD=("소계(USD)", "sum"), 최종_KRW=("최종(KRW)", "sum"))
                     .sort_values("최종_KRW", ascending=False)
                     .rename(columns={"소계_USD": "소계(USD)", "최종_KRW": "최종(KRW)"})
+                    [["소계(USD)", "최종(KRW)"]]
                 )
                 df_proj["소계(USD)"] = df_proj["소계(USD)"].map("$ {:,.4f}".format)
                 df_proj["최종(KRW)"] = df_proj["최종(KRW)"].map("₩ {:,.0f}".format)
@@ -701,7 +695,7 @@ with tab1:
 
                 # SKU별 세부 내역
                 st.markdown("#### 📋 SKU별 세부 내역")
-                df_disp = df_result.copy()
+                df_disp = df_result[["SKU명", "총사용량", "무료차감", "청구대상", "소계(USD)", "최종(KRW)"]].copy()
                 df_disp["소계(USD)"] = df_disp["소계(USD)"].map("$ {:,.4f}".format)
                 df_disp["최종(KRW)"] = df_disp["최종(KRW)"].map("₩ {:,.0f}".format)
                 for col in ("총사용량", "무료차감", "청구대상"):
