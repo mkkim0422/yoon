@@ -38,6 +38,8 @@ class UsageRow:
     project_name: str
     sku_id: str
     usage_amount: int
+    cost_krw: Optional[Decimal] = None   # 실제 청구 KRW 비용 (CSV에서 읽음)
+    unit_price: Optional[float] = None   # 공시 단가 (CSV 단가 컬럼 또는 None)
 
 
 @dataclass

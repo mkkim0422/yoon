@@ -28,6 +28,15 @@ COLUMN_MAP: dict[str, str] = {
     "사용량":        "usage_amount",
 }
 
+# 실제 비용 컬럼 후보 (KRW) — 반올림 전 값 우선
+_KRW_COL_CANDIDATES: tuple[str, ...] = (
+    "반올림되지 않은 비용(₩)", "비용(₩)", "Cost (₩)"
+)
+# 공시 단가 컬럼 후보
+_PRICE_COL_CANDIDATES: tuple[str, ...] = (
+    "단가", "단가($)", "Price per usage unit", "Price"
+)
+
 # 헤더 행 탐지 기준: 이 문자열 중 하나가 포함된 행을 헤더로 간주
 # (한글 고지서 / 영문 고지서 모두 대응)
 HEADER_ANCHORS: tuple[str, ...] = ("프로젝트 ID", "Project ID")
@@ -49,11 +58,17 @@ def extract_company_names(
 
     해당 컬럼이 없거나 파일을 읽을 수 없으면 빈 리스트를 반환.
     """
+    import warnings
     try:
         df = _read_file(Path(file_path), encoding)
-    except Exception:
+    except Exception as e:
+        warnings.warn(f"[extract_company_names] 파일 읽기 실패: {e}")
         return []
     if COMPANY_COL not in df.columns:
+        warnings.warn(
+            f"[extract_company_names] '{COMPANY_COL}' 컬럼이 없습니다. "
+            f"실제 컬럼: {list(df.columns)}"
+        )
         return []
     return sorted(
         v for v in df[COMPANY_COL].dropna().unique().tolist() if str(v).strip()
@@ -123,10 +138,37 @@ def preprocess_usage_file(
         .astype(int)                             # 최종 정수
     )
 
+    # 실제 KRW 비용 컬럼 탐지 (반올림 전 값 우선)
+    _krw_col = next((c for c in _KRW_COL_CANDIDATES if c in df.columns), None)
+    if _krw_col:
+        df["cost_krw_sum"] = (
+            pd.to_numeric(
+                df[_krw_col].astype(str).str.replace(",", "").str.replace("₩", ""),
+                errors="coerce",
+            ).fillna(0)
+        )
+    else:
+        df["cost_krw_sum"] = 0.0
+
+    # 공시 단가 컬럼 탐지
+    _price_col = next((c for c in _PRICE_COL_CANDIDATES if c in df.columns), None)
+    if _price_col:
+        df["unit_price_first"] = (
+            pd.to_numeric(
+                df[_price_col].astype(str).str.replace(",", "").str.replace("$", ""),
+                errors="coerce",
+            ).fillna(0)
+        )
+    else:
+        df["unit_price_first"] = 0.0
+
     # ── Step 4: Groupby + Sum ─────────────────────────────────────────────
+    agg_dict: dict[str, Any] = {"usage_amount":  ("usage_amount",   "sum"),
+                                 "cost_krw_sum":  ("cost_krw_sum",   "sum"),
+                                 "unit_price_first": ("unit_price_first", "first")}
     grouped = (
         df.groupby(["project_id", "project_name", "sku_id", "sku_name"], as_index=False)
-          .agg(usage_amount=("usage_amount", "sum"))
+          .agg(**agg_dict)
     )
 
     # ── Step 5: 딕셔너리 리스트 변환 ─────────────────────────────────────
@@ -139,6 +181,8 @@ def preprocess_usage_file(
                 "project_name":  row.project_name,
                 "sku_id":        row.sku_id,
                 "usage_amount":  int(row.usage_amount),
+                "cost_krw":      float(row.cost_krw_sum),
+                "unit_price":    float(row.unit_price_first) if float(row.unit_price_first) > 0 else None,
             }
         )
 
@@ -151,16 +195,25 @@ def _find_header_row_csv(file_path: Path, encoding: str) -> int:
     """
     CSV를 한 줄씩 읽어 HEADER_ANCHORS 중 하나가 포함된 첫 행의 인덱스(0-based)를 반환.
 
-    이 인덱스를 pd.read_csv(skiprows=N)에 전달하면
-    메타데이터 줄 수에 관계없이 올바른 헤더 행을 찾아낸다.
+    인코딩을 순서대로 시도하며, 첫 번째 성공한 인코딩을 사용한다.
 
     Raises:
         ValueError: 파일 전체를 읽었으나 헤더 행을 찾지 못한 경우
     """
-    with open(file_path, encoding=encoding, errors="replace") as f:
-        for idx, line in enumerate(f):
-            if any(anchor in line for anchor in HEADER_ANCHORS):
-                return idx
+    # 시도할 인코딩 목록 (BOM 포함 UTF-8 우선, 이후 UTF-8, CP949/EUC-KR 순)
+    _ENCODINGS = [encoding, "utf-8-sig", "utf-8", "cp949", "euc-kr", "latin-1"]
+    seen: set[str] = set()
+    for enc in _ENCODINGS:
+        if enc in seen:
+            continue
+        seen.add(enc)
+        try:
+            with open(file_path, encoding=enc, errors="strict") as f:
+                for idx, line in enumerate(f):
+                    if any(anchor in line for anchor in HEADER_ANCHORS):
+                        return idx
+        except (UnicodeDecodeError, LookupError):
+            continue
     raise ValueError(
         f"헤더 행을 찾을 수 없습니다. "
         f"{list(HEADER_ANCHORS)} 중 하나가 포함된 행이 없습니다: {file_path}"
@@ -189,7 +242,7 @@ def _find_header_row_excel(file_path: Path) -> int:
 
 
 def _read_file(file_path: Path, encoding: str) -> pd.DataFrame:
-    """확장자 기반으로 CSV / Excel 읽기 (동적 헤더 탐지 포함)."""
+    """확장자 기반으로 CSV / Excel 읽기 (동적 헤더 탐지 + 인코딩/구분자 자동 감지)."""
     if not file_path.exists():
         raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
 
@@ -197,20 +250,45 @@ def _read_file(file_path: Path, encoding: str) -> pd.DataFrame:
 
     if suffix == ".csv":
         header_row = _find_header_row_csv(file_path, encoding)
-        return pd.read_csv(
-            file_path,
-            skiprows=header_row,
-            encoding=encoding,
-            dtype=str,
-        )
+
+        # 실제로 파일을 읽을 때 사용할 인코딩 결정 (header 탐지에 성공한 인코딩 재탐지)
+        _ENCODINGS = [encoding, "utf-8-sig", "utf-8", "cp949", "euc-kr", "latin-1"]
+        seen: set[str] = set()
+        df = None
+        for enc in _ENCODINGS:
+            if enc in seen:
+                continue
+            seen.add(enc)
+            try:
+                df = pd.read_csv(
+                    file_path,
+                    skiprows=header_row,
+                    encoding=enc,
+                    sep=None,           # 구분자 자동 감지 (쉼표·세미콜론·탭 등)
+                    engine="python",    # sep=None 사용 시 필수
+                    dtype=str,
+                    on_bad_lines="skip",
+                )
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+
+        if df is None:
+            raise ValueError(f"CSV 파일을 읽을 수 없습니다: {file_path}")
+
+        # 컬럼명 양 끝 공백 제거 (수동 편집 시 공백이 추가될 수 있음)
+        df.columns = df.columns.str.strip()
+        return df
 
     if suffix in {".xlsx", ".xls"}:
         header_row = _find_header_row_excel(file_path)
-        return pd.read_excel(
+        df = pd.read_excel(
             file_path,
             skiprows=header_row,
             dtype=str,
         )
+        df.columns = df.columns.str.strip()
+        return df
 
     raise ValueError(
         f"지원하지 않는 파일 형식입니다: '{suffix}' "

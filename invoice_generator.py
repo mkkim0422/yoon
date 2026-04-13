@@ -123,6 +123,7 @@ def generate_formatted_invoice(
         write_project_sheet(
             wb, proj_results, company_name, billing_month,
             exchange_rate, margin_rate, invoice_date, bank_name,
+            line_items=line_items,
         )
 
     # 3번 시트: GMP Price List (원본 엑셀 As-is 복제)
@@ -304,16 +305,19 @@ def _write_data_rows(ws, line_items: list) -> int:
                         h="right" if billable_disp != "-" else "center",
                         num="#,##0" if billable_disp != "-" else "General")
         else:
+            # n==0: SKU에 정의된 티어 없음 (엣지케이스) — 단일 행
             _cell_write(ws, curr, _col(0), item.sku_name,  h="center", wrap=True)
             _cell_write(ws, curr, _col(1), item.total_usage, h="right", num="#,##0")
             _cell_write(ws, curr, _col(2), f"-{item.free_usage_cap:,}", h="center")
-            _cell_write(ws, curr, _col(3), "-", h="center")
+            _cell_write(ws, curr, _col(3), billable_disp,
+                        h="right" if billable_disp != "-" else "center",
+                        num="#,##0" if billable_disp != "-" else "General")
             _cell_write(ws, curr, _col(4), "-", h="center")
             _cell_write(ws, curr, _col(5), "-", h="center")
             _cell_write(ws, curr, _col(6), "-", h="center")
-            _cell_write(ws, curr, _col(7), 0.0, h="right", num="$#,##0.00")
+            _cell_write(ws, curr, _col(7), float(item.subtotal_usd),
+                        h="right", num="$#,##0.00")
             curr += 1
-            continue
 
         for i, tb in enumerate(item.tier_breakdown):
             label = TIER_LABELS.get(tb.tier_number, f"T{tb.tier_number}")
@@ -327,8 +331,7 @@ def _write_data_rows(ws, line_items: list) -> int:
             _cell_write(ws, curr + i, _col(7), float(tb.amount_usd),
                         h="right", num="$#,##0.00")
 
-        if n > 0:
-            curr += n
+        curr += n
 
         # ── 소계 행: 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ────────
         for c in range(_col(0), _col(4) + 1):
@@ -345,13 +348,15 @@ def _write_data_rows(ws, line_items: list) -> int:
         cell.alignment = _align("center", "center")
         cell.border    = _BORDER_ALL
 
+        # 소계 = 실제 렌더된 tier rows의 합 (engine subtotal_usd와 불일치 방지)
+        tier_sum = sum(tb.amount_usd for tb in item.tier_breakdown)
         sub_usage = item.billable_usage if item.billable_usage > 0 else "-"
         _cell_write(ws, curr, _col(5), sub_usage,
                     h="right" if sub_usage != "-" else "center",
                     num="#,##0" if sub_usage != "-" else "General",
                     bold=True, bg=C_SUB)
         _cell_write(ws, curr, _col(6), "",   h="center", bold=True, bg=C_SUB)
-        _cell_write(ws, curr, _col(7), float(item.subtotal_usd),
+        _cell_write(ws, curr, _col(7), float(tier_sum),
                     h="right", num="$#,##0.00", bold=True, bg=C_SUB)
         curr += 1
 
@@ -365,9 +370,14 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
                         last_data_row: int,
                         billing_month: str = "2026-01",
                         bank_name: str = "하나은행") -> int:
-    t_usd = sum((item.subtotal_usd for item in line_items), Decimal("0"))
-    t_usd_rounded = t_usd.quantize(Decimal("1"), ROUND_HALF_UP)
-    t_krw = (t_usd_rounded * exchange_rate * margin_rate
+    # 합계 = 렌더된 tier rows의 합 (소계와 일관성 유지)
+    t_usd = sum(
+        (sum(tb.amount_usd for tb in item.tier_breakdown)
+         .quantize(Decimal("1"), ROUND_HALF_UP)
+         for item in line_items),
+        Decimal("0"),
+    )
+    t_krw = (t_usd * exchange_rate * margin_rate
              ).quantize(Decimal("1"), ROUND_HALF_UP)
 
     year, month = int(billing_month[:4]), int(billing_month[5:7])
@@ -388,8 +398,8 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell.fill      = _fill(C_WHITE)
     cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
-    _cell_write(ws, r, _col(7), float(t_usd_rounded),
-                h="right", num="$#,##0.00", bold=True)
+    _cell_write(ws, r, _col(7), float(t_usd),
+                h="right", num="$#,##0", bold=True)
 
     # ── 환율 — 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ────────────
     r += 1
@@ -406,7 +416,7 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
     _cell_write(ws, r, _col(7), float(exchange_rate),
-                h="right", num="$#,##0.00", bold=True)
+                h="right", num="₩#,##0.00", bold=True)
 
     # ── 청구금액(KRW) — 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ───
     r += 1
@@ -426,7 +436,7 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell8.font          = _font(bold=True, color=C_WHITE)
     cell8.fill          = _fill(C_DARK)
     cell8.alignment     = _align("right", "center")
-    cell8.number_format = "#,##0"
+    cell8.number_format = "₩#,##0"
     cell8.border        = _BORDER_ALL
 
     return r

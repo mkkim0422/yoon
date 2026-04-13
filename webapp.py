@@ -290,7 +290,7 @@ with st.sidebar:
     exchange_rate = st.number_input(
         "💱 환율 (USD → KRW)",
         min_value=500.0, max_value=3000.0,
-        value=1350.0, step=1.0, format="%g",
+        value=1525.3, step=1.0, format="%g",
     )
     bank_name = st.text_input(
         "🏦 은행",
@@ -299,8 +299,8 @@ with st.sidebar:
     margin_pct = st.number_input(
         "📈 마진율 (%)",
         min_value=0.0, max_value=100.0,
-        value=12.0, step=0.1, format="%g",
-        help="원가에 추가할 마진 백분율 (예: 12 → ×1.12 적용)",
+        value=0.0, step=0.1, format="%g",
+        help="원가에 추가할 마진 백분율 (0 = 마진 없음, Google 원가 그대로)",
     )
     margin_rate = (100.0 + margin_pct) / 100.0
 

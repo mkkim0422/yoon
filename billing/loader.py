@@ -69,9 +69,21 @@ def parse_gmp_price_excel(file_bytes: bytes) -> list[dict]:
     return list(result_map.values())
 
 def load_usage_rows(rows: list[dict[str, Any]]) -> list[UsageRow]:
-    return [UsageRow(billing_month=r["billing_month"], project_id=r["project_id"], 
-                     project_name=r.get("project_name", r["project_id"]), 
-                     sku_id=r["sku_id"], usage_amount=int(r["usage_amount"])) for r in rows]
+    from decimal import Decimal as _D
+    result = []
+    for r in rows:
+        krw_val = r.get("cost_krw")
+        cost_krw = _D(str(round(float(krw_val), 4))) if krw_val is not None else None
+        result.append(UsageRow(
+            billing_month=r["billing_month"],
+            project_id=r["project_id"],
+            project_name=r.get("project_name", r["project_id"]),
+            sku_id=r["sku_id"],
+            usage_amount=int(r["usage_amount"]),
+            cost_krw=cost_krw,
+            unit_price=r.get("unit_price"),
+        ))
+    return result
 
 def load_exchange_rate(row: dict[str, Any]) -> Decimal:
     return Decimal(str(row["usd_to_krw"]))
