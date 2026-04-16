@@ -1,5 +1,0 @@
-프로젝트 ID,SKU ID,SKU 설명,비용 유형,사용량
-popo-01,maps.dynamic,Dynamic Maps,사용량,150000
-popo-01,tax.vat,세금,TAX,1
-popo-01,maps.dynamic,Dynamic Maps,RESELLER_MARGIN,999
-popo-02,places.details,Places Details,사용량,3000
