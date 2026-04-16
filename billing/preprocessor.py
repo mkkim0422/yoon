@@ -180,6 +180,7 @@ def preprocess_usage_file(
                 "project_id":    row.project_id,
                 "project_name":  row.project_name,
                 "sku_id":        row.sku_id,
+                "sku_name":      row.sku_name,
                 "usage_amount":  int(row.usage_amount),
                 "cost_krw":      float(row.cost_krw_sum),
                 "unit_price":    float(row.unit_price_first) if float(row.unit_price_first) > 0 else None,

@@ -27,7 +27,7 @@ import calendar
 import io
 from copy import copy
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -93,6 +93,8 @@ def generate_formatted_invoice(
     bank_name: str = "하나은행",
     proj_results: list | None = None,
     price_list_file=None,
+    sku_order: list[str] | None = None,
+    currency: str = "USD",
 ) -> bytes | None:
     """
     Invoice 시트를 생성한다.
@@ -104,15 +106,22 @@ def generate_formatted_invoice(
     ws = wb.active
     ws.title = "Invoice"
 
-    _set_white_background(ws)
+    # 실제 콘텐츠가 차지할 행 수를 계산해 배경 범위를 타이트하게 지정
+    #   헤더(6) + SKU당 6행 + 합계/환율/청구금액(3) + 부가세/이미지(~3) + 여유(2)
+    _n_items         = len([it for it in line_items if not _is_tax_sku(it.sku_name)])
+    _estimated_max   = 6 + 6 * _n_items + 3 + 3 + 2
+    _set_white_background(ws, max_row=_estimated_max)
     _set_column_widths(ws)
     _write_image_area(ws)
     _write_invoice_info(ws, company_name, billing_month, invoice_date)
     _write_table_header(ws)
-    last_data_row = _write_data_rows(ws, line_items)
-    bottom_row = _write_summary_rows(
-        ws, line_items, exchange_rate, margin_rate,
+    last_data_row, sku_rows = _write_data_rows(
+        ws, line_items, sku_order=sku_order, currency=currency,
+    )
+    bottom_row, rate_row = _write_summary_rows(
+        ws, sku_rows, exchange_rate, margin_rate,
         last_data_row, billing_month, bank_name,
+        currency=currency,
     )
     _write_vat_note(ws, bottom_row)
     _write_bottom_image(ws, bottom_row + 2)
@@ -124,6 +133,9 @@ def generate_formatted_invoice(
             wb, proj_results, company_name, billing_month,
             exchange_rate, margin_rate, invoice_date, bank_name,
             line_items=line_items,
+            invoice_sku_rows=sku_rows,
+            invoice_rate_row=rate_row,
+            currency=currency,
         )
 
     # 3번 시트: GMP Price List (원본 엑셀 As-is 복제)
@@ -141,12 +153,14 @@ def generate_formatted_invoice(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 내부 헬퍼: 시트 전체 흰색 배경
+# 내부 헬퍼: 시트 전체 흰색 배경 — 실제 콘텐츠 범위만 채워야 Excel UsedRange
+# 가 부풀려지지 않아 PDF 출력 시 빈 페이지/여백이 생기지 않는다.
 # ─────────────────────────────────────────────────────────────────────────────
-def _set_white_background(ws) -> None:
+def _set_white_background(ws, max_row: int = 60, max_col: int = 12) -> None:
     ws.sheet_view.showGridLines = False
     white = _fill(C_WHITE)
-    for row in ws.iter_rows(min_row=1, max_row=250, min_col=1, max_col=12):
+    for row in ws.iter_rows(min_row=1, max_row=max_row,
+                            min_col=1, max_col=max_col):
         for cell in row:
             cell.fill = white
 
@@ -273,67 +287,127 @@ def _write_table_header(ws) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 내부 헬퍼: Row 7+ — 데이터 행
+# 내부 헬퍼: Row 7+ — 데이터 행  (수식 기반 — GMP Price List 시트 참조)
 # ─────────────────────────────────────────────────────────────────────────────
-TIER_LABELS    = {1: "0-100K", 2: "~500K", 3: "~1M", 4: "~5M", 5: "~10M"}
-DATA_START_ROW = TABLE_HEADER_ROW + 1   # = 7
+TIER_LABELS_ORDER = ["0-100K", "~500K", "~1M", "~5M", "~10M"]
+PRICE_LIST_COLS   = ["D", "E", "F", "G", "H"]   # GMP Price List 시트의 tier 단가 컬럼
+DATA_START_ROW    = TABLE_HEADER_ROW + 1        # = 7
+
+# tax / VAT SKU는 인보이스 본문에서 제외 (별도 라인으로 표시되지 않음)
+_TAX_KEYWORDS = ("세금", "tax", "vat")
+def _is_tax_sku(name: str) -> bool:
+    n = (name or "").lower()
+    return any(kw in n for kw in _TAX_KEYWORDS)
+
 
 def _col(idx: int) -> int:
     return C1 + idx
 
-def _write_data_rows(ws, line_items: list) -> int:
+
+def _write_data_rows(ws, line_items: list,
+                     sku_order: list[str] | None = None,
+                     currency: str = "USD") -> tuple[int, list[dict]]:
+    """각 SKU마다 5개 tier 행 + 1개 소계 행을 수식 기반으로 작성한다.
+
+    sku_order가 주어지면 그 순서대로 정렬; 목록에 없는 SKU는 뒤에 알파벳순.
+    sku_order가 None이면 기본 알파벳순.
+
+    currency='USD' (기본) : 단가/금액/소계 = "$#,##0.00" / "$#,##0"
+    currency='KRW'        : 단가/금액/소계 = "₩#,##0"
+
+    반환: (마지막 데이터 행 번호, sku_rows)
+      sku_rows = [{"sku_name", "header_row", "subtotal_row"}, ...]
+      — Project 시트에서 Invoice 셀 참조할 때 사용.
+    """
+    # 통화별 number format / 소계 수식 결정
+    is_krw = (currency == "KRW")
+    _tier_price_fmt = '"\u20a9"#,##0'        if is_krw else '"$"#,##0.00'
+    _tier_amount_fmt = '"\u20a9"#,##0'       if is_krw else '"$"#,##0'
+    _subtotal_fmt    = '"\u20a9"#,##0'       if is_krw else '"$"#,##0'
+    _subtotal_round  = 0 if is_krw else 2   # ₩ 는 정수, $ 는 2자리
+
     curr = DATA_START_ROW
+    sku_rows: list[dict] = []
 
-    for item in sorted(line_items, key=lambda x: x.sku_name):
-        n = len(item.tier_breakdown)
-        billable_disp = item.billable_usage if item.billable_usage > 0 else "-"
+    # tax/VAT 제외
+    filtered = [it for it in line_items if not _is_tax_sku(it.sku_name)]
 
-        if n > 1:
-            _merge_write(ws, curr, curr + n - 1, _col(0), item.sku_name,
-                         fmt_data="center", wrap=True)
-            _merge_write(ws, curr, curr + n - 1, _col(1), item.total_usage,
-                         fmt_data="number")
-            _merge_write(ws, curr, curr + n - 1, _col(2),
-                         f"-{item.free_usage_cap:,}", fmt_data="center")
-            _merge_write(ws, curr, curr + n - 1, _col(3), billable_disp,
-                         fmt_data="number" if billable_disp != "-" else "center")
-        elif n == 1:
-            _cell_write(ws, curr, _col(0), item.sku_name,  h="center", wrap=True)
-            _cell_write(ws, curr, _col(1), item.total_usage, h="right", num="#,##0")
-            _cell_write(ws, curr, _col(2), f"-{item.free_usage_cap:,}", h="center")
-            _cell_write(ws, curr, _col(3), billable_disp,
-                        h="right" if billable_disp != "-" else "center",
-                        num="#,##0" if billable_disp != "-" else "General")
-        else:
-            # n==0: SKU에 정의된 티어 없음 (엣지케이스) — 단일 행
-            _cell_write(ws, curr, _col(0), item.sku_name,  h="center", wrap=True)
-            _cell_write(ws, curr, _col(1), item.total_usage, h="right", num="#,##0")
-            _cell_write(ws, curr, _col(2), f"-{item.free_usage_cap:,}", h="center")
-            _cell_write(ws, curr, _col(3), billable_disp,
-                        h="right" if billable_disp != "-" else "center",
-                        num="#,##0" if billable_disp != "-" else "General")
-            _cell_write(ws, curr, _col(4), "-", h="center")
-            _cell_write(ws, curr, _col(5), "-", h="center")
-            _cell_write(ws, curr, _col(6), "-", h="center")
-            _cell_write(ws, curr, _col(7), float(item.subtotal_usd),
-                        h="right", num="$#,##0.00")
-            curr += 1
+    if sku_order:
+        order_map = {name: idx for idx, name in enumerate(sku_order)}
+        # 목록에 없는 것은 뒤에 붙임 (알파벳순)
+        items = sorted(
+            filtered,
+            key=lambda x: (order_map.get(x.sku_name, len(order_map)), x.sku_name),
+        )
+    else:
+        items = sorted(filtered, key=lambda x: x.sku_name)
 
-        for i, tb in enumerate(item.tier_breakdown):
-            label = TIER_LABELS.get(tb.tier_number, f"T{tb.tier_number}")
-            usage = tb.usage_in_tier if tb.usage_in_tier > 0 else "-"
-            _cell_write(ws, curr + i, _col(4), label, h="center")
-            _cell_write(ws, curr + i, _col(5), usage,
-                        h="right" if usage != "-" else "center",
-                        num="#,##0" if usage != "-" else "General")
-            _cell_write(ws, curr + i, _col(6), float(tb.tier_cpm),
-                        h="right", num="$#,##0.00")
-            _cell_write(ws, curr + i, _col(7), float(tb.amount_usd),
-                        h="right", num="$#,##0.00")
+    for item in items:
+        header_row    = curr
+        last_tier_row = curr + 4
+        subtotal_row  = last_tier_row + 1
 
-        curr += n
+        b_ref = f"B{header_row}"
+        e_ref = f"E{header_row}"
 
-        # ── 소계 행: 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ────────
+        # ── B(SKU명), C(사용량), D(무료-수식), E(소계-수식) — 5행 세로 병합 ─
+        _merge_write(ws, header_row, last_tier_row, _col(0), item.sku_name,
+                     fmt_data="center", wrap=True)
+        _merge_write(ws, header_row, last_tier_row, _col(1), int(item.total_usage),
+                     fmt_data="number")
+
+        free_formula = (
+            f"=SUMIF('GMP Price List'!$A:$A,{b_ref},'GMP Price List'!$C:$C)"
+        )
+        _merge_write(ws, header_row, last_tier_row, _col(2), free_formula,
+                     fmt_data="center", num='"-"#,##0')
+
+        subtotal_formula = f"=IF(C{header_row}-D{header_row}>0,C{header_row}-D{header_row},0)"
+        _merge_write(ws, header_row, last_tier_row, _col(3), subtotal_formula,
+                     fmt_data="number", num="#,##0")
+
+        # ── 5개 tier 행: F(라벨), G(수량 수식), H(단가 수식), I(금액 수식) ──
+        for i in range(5):
+            r = header_row + i
+            _cell_write(ws, r, _col(4), TIER_LABELS_ORDER[i], h="center")
+
+            # G: tier별 수량 waterfall 수식
+            if i == 0:
+                g_formula = f"=IF({e_ref}>100000,100000,{e_ref})"
+            elif i == 1:
+                g_formula = f"=IF({e_ref}>500000,400000,{e_ref}-G{header_row})"
+            elif i == 2:
+                g_formula = (
+                    f"=IF({e_ref}>1000000,500000,"
+                    f"{e_ref}-G{header_row}-G{header_row+1})"
+                )
+            elif i == 3:
+                g_formula = (
+                    f"=IF({e_ref}>5000000,4000000,"
+                    f"{e_ref}-G{header_row}-G{header_row+1}-G{header_row+2})"
+                )
+            else:  # i == 4
+                sub_expr = (
+                    f"{e_ref}-G{header_row}-G{header_row+1}"
+                    f"-G{header_row+2}-G{header_row+3}"
+                )
+                g_formula = f"=IF({sub_expr}>0,{sub_expr},0)"
+            _cell_write(ws, r, _col(5), g_formula, h="right", num='#,##0;;"-"')
+
+            # H: tier별 단가 (GMP Price List 해당 컬럼 참조)
+            h_formula = (
+                f"=SUMIF('GMP Price List'!$A:$A,{b_ref},"
+                f"'GMP Price List'!${PRICE_LIST_COLS[i]}:${PRICE_LIST_COLS[i]})"
+            )
+            _cell_write(ws, r, _col(6), h_formula, h="right", num=_tier_price_fmt)
+
+            # I: 수량 × 단가 / 1000
+            i_formula = f"=G{r}*H{r}/1000"
+            _cell_write(ws, r, _col(7), i_formula, h="right", num=_tier_amount_fmt)
+
+        # ── 소계 행 (B:F 병합, G=SUM, I=ROUND(SUM,2)) ────────────────────────
+        curr = subtotal_row
+
         for c in range(_col(0), _col(4) + 1):
             ws.cell(row=curr, column=c).fill   = _fill(C_SUB)
             ws.cell(row=curr, column=c).border = _BORDER_ALL
@@ -348,45 +422,94 @@ def _write_data_rows(ws, line_items: list) -> int:
         cell.alignment = _align("center", "center")
         cell.border    = _BORDER_ALL
 
-        # 소계 = 실제 렌더된 tier rows의 합 (engine subtotal_usd와 불일치 방지)
-        tier_sum = sum(tb.amount_usd for tb in item.tier_breakdown)
-        sub_usage = item.billable_usage if item.billable_usage > 0 else "-"
-        _cell_write(ws, curr, _col(5), sub_usage,
-                    h="right" if sub_usage != "-" else "center",
-                    num="#,##0" if sub_usage != "-" else "General",
-                    bold=True, bg=C_SUB)
-        _cell_write(ws, curr, _col(6), "",   h="center", bold=True, bg=C_SUB)
-        _cell_write(ws, curr, _col(7), float(tier_sum),
-                    h="right", num="$#,##0.00", bold=True, bg=C_SUB)
-        curr += 1
+        _cell_write(ws, curr, _col(5),
+                    f"=SUM(G{header_row}:G{last_tier_row})",
+                    h="right", num='#,##0;;"-"', bold=True, bg=C_SUB)
+        _cell_write(ws, curr, _col(6), "", h="center", bold=True, bg=C_SUB)
+        _cell_write(ws, curr, _col(7),
+                    f"=ROUND(SUM(I{header_row}:I{last_tier_row}),{_subtotal_round})",
+                    h="right", num=_subtotal_fmt, bold=True, bg=C_SUB)
 
-    return curr - 1
+        sku_rows.append({
+            "sku_name":     item.sku_name,
+            "header_row":   header_row,
+            "subtotal_row": subtotal_row,
+        })
+        curr = subtotal_row + 1
+
+    return curr - 1, sku_rows
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 내부 헬퍼: 합계 / 환율 / 청구금액 행
 # ─────────────────────────────────────────────────────────────────────────────
-def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
+def _write_summary_rows(ws, sku_rows: list[dict], exchange_rate, margin_rate,
                         last_data_row: int,
                         billing_month: str = "2026-01",
-                        bank_name: str = "하나은행") -> int:
-    # 합계 = 렌더된 tier rows의 합 (소계와 일관성 유지)
-    t_usd = sum(
-        (sum(tb.amount_usd for tb in item.tier_breakdown)
-         .quantize(Decimal("1"), ROUND_HALF_UP)
-         for item in line_items),
-        Decimal("0"),
-    )
-    t_krw = (t_usd * exchange_rate * margin_rate
-             ).quantize(Decimal("1"), ROUND_HALF_UP)
+                        bank_name: str = "하나은행",
+                        currency: str = "USD") -> tuple[int, int | None]:
+    """합계(USD) / 환율 / 청구금액(KRW) 행을 수식으로 작성.
+
+    currency='USD' : 기존 3행 (합계USD / 환율 / 청구금액KRW).
+    currency='KRW' : 합계·환율 행 생략, 청구금액(KRW) 1행만 렌더링
+                     — 소계 행들을 직접 SUM (× 환율 없음).
+
+    반환: (청구금액 행 번호, 환율 행 번호 | None)  — KRW 모드는 rate_row=None.
+    """
+    is_krw = (currency == "KRW")
 
     year, month = int(billing_month[:4]), int(billing_month[5:7])
     last_day     = calendar.monthrange(year, month)[1]
     last_day_str = f"{year}.{month:02d}.{last_day:02d}"
 
+    # 소계 I열 셀 참조 문자열 (공통)
+    if sku_rows:
+        sub_refs = ",".join(f"I{s['subtotal_row']}" for s in sku_rows)
+    else:
+        sub_refs = ""
+
     r = last_data_row + 1
 
-    # ── 합계(USD) — 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ────────
+    # ═════════════════════════════════════════════════════════════════════
+    # KRW 모드: 합계(USD) / 환율 행 생략. 청구금액(KRW) 1행만 렌더.
+    # ═════════════════════════════════════════════════════════════════════
+    if is_krw:
+        for c in range(_col(0), _col(6) + 1):
+            ws.cell(row=r, column=c).fill   = _fill(C_DARK)
+            ws.cell(row=r, column=c).border = _BORDER_ALL
+        ws.merge_cells(start_row=r, start_column=_col(0),
+                       end_row=r,   end_column=_col(6))
+        cell = ws.cell(row=r, column=_col(0), value="청 구 금 액(KRW)")
+        cell.font      = _font(bold=True, color=C_WHITE)
+        cell.fill      = _fill(C_DARK)
+        cell.alignment = _align("center", "center")
+        cell.border    = _BORDER_ALL
+
+        _m = float(margin_rate) if margin_rate is not None else 1.0
+        if sub_refs:
+            # 원화 모드: 소계(이미 ₩) 들을 직접 SUM, 필요 시 마진율 곱
+            if _m == 1.0:
+                krw_formula = f"=ROUND(SUM({sub_refs}),0)"
+            else:
+                krw_formula = f"=ROUND(SUM({sub_refs})*{_m},0)"
+        else:
+            krw_formula = 0
+
+        cell8 = ws.cell(row=r, column=_col(7), value=krw_formula)
+        cell8.font          = _font(bold=True, color=C_WHITE)
+        cell8.fill          = _fill(C_DARK)
+        cell8.alignment     = _align("right", "center")
+        cell8.number_format = '"\u20a9"#,##0'
+        cell8.border        = _BORDER_ALL
+        return r, None
+
+    # ═════════════════════════════════════════════════════════════════════
+    # USD 모드 (기본): 합계(USD) / 환율 / 청구금액(KRW)
+    # ═════════════════════════════════════════════════════════════════════
+    usd_total = f"=ROUND(SUM({sub_refs}),0)" if sub_refs else 0
+    usd_row = r
+
+    # ── 합계(USD) ──────────────────────────────────────────────────────────
     for c in range(_col(0), _col(6) + 1):
         ws.cell(row=r, column=c).fill   = _fill(C_WHITE)
         ws.cell(row=r, column=c).border = _BORDER_ALL
@@ -398,11 +521,12 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell.fill      = _fill(C_WHITE)
     cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
-    _cell_write(ws, r, _col(7), float(t_usd),
-                h="right", num="$#,##0", bold=True)
+    _cell_write(ws, r, _col(7), usd_total,
+                h="right", num='"$"#,##0', bold=True)
 
-    # ── 환율 — 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ────────────
+    # ── 환율 ──────────────────────────────────────────────────────────────
     r += 1
+    rate_row = r
     for c in range(_col(0), _col(6) + 1):
         ws.cell(row=r, column=c).fill   = _fill(C_WHITE)
         ws.cell(row=r, column=c).border = _BORDER_ALL
@@ -416,9 +540,9 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell.alignment = _align("left", "center")
     cell.border    = _BORDER_ALL
     _cell_write(ws, r, _col(7), float(exchange_rate),
-                h="right", num="₩#,##0.00", bold=True)
+                h="right", num='"\u20a9"#,##0.00', bold=True)
 
-    # ── 청구금액(KRW) — 병합 전 앵커(_col(0)) 포함 전체 범위 테두리 먼저 ───
+    # ── 청구금액(KRW) = 합계(USD) × 환율 × margin ─────────────────────────
     r += 1
     for c in range(_col(0), _col(6) + 1):
         ws.cell(row=r, column=c).fill   = _fill(C_DARK)
@@ -432,14 +556,20 @@ def _write_summary_rows(ws, line_items, exchange_rate, margin_rate,
     cell.alignment = _align("center", "center")
     cell.border    = _BORDER_ALL
 
-    cell8 = ws.cell(row=r, column=_col(7), value=int(t_krw))
+    _m = float(margin_rate) if margin_rate is not None else 1.0
+    if _m == 1.0:
+        krw_formula = f"=ROUND(I{usd_row}*I{rate_row},0)"
+    else:
+        krw_formula = f"=ROUND(I{usd_row}*I{rate_row}*{_m},0)"
+
+    cell8 = ws.cell(row=r, column=_col(7), value=krw_formula)
     cell8.font          = _font(bold=True, color=C_WHITE)
     cell8.fill          = _fill(C_DARK)
     cell8.alignment     = _align("right", "center")
-    cell8.number_format = "₩#,##0"
+    cell8.number_format = '"\u20a9"#,##0'
     cell8.border        = _BORDER_ALL
 
-    return r
+    return r, rate_row
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -549,11 +679,16 @@ def _cell_write(ws, row: int, col: int, value,
 
 def _merge_write(ws, r1: int, r2: int, col: int, value,
                  fmt_data="center", wrap=False,
-                 bold=False, color="000000", bg=C_WHITE) -> None:
+                 bold=False, color="000000", bg=C_WHITE,
+                 num: str | None = None, h: str | None = None) -> None:
     """단일 열 세로 병합 (r1~r2, col 고정).
-    병합 전에 범위 내 모든 셀(r1~r2 전체)에 테두리를 먼저 입혀 왼쪽 선 유실 방지."""
-    h   = "right" if fmt_data == "number" else "center"
-    num = "#,##0" if fmt_data == "number" else "General"
+    병합 전에 범위 내 모든 셀(r1~r2 전체)에 테두리를 먼저 입혀 왼쪽 선 유실 방지.
+    num / h 를 명시하면 fmt_data 프리셋을 덮어쓴다."""
+    _h   = "right" if fmt_data == "number" else "center"
+    _num = "#,##0" if fmt_data == "number" else "General"
+    if h   is not None: _h   = h
+    if num is not None: _num = num
+    h, num = _h, _num
 
     # ① 병합 전: r1 포함 전체 범위(r1~r2)에 스타일 먼저 적용
     for r in range(r1, r2 + 1):
@@ -600,6 +735,10 @@ def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
 
     from openpyxl.utils import get_column_letter
 
+    # 실제 데이터 범위로 제한 (시트 dim A1:Z1005 같이 과대 범위 순회 방지)
+    max_row = min(src_ws.max_row or 1, 200)
+    max_col = min(src_ws.max_column or 1, 30)
+
     # 시트 기본값
     default_col_w = src_ws.sheet_format.defaultColWidth or 8.43
     if src_ws.sheet_format.defaultColWidth:
@@ -618,7 +757,8 @@ def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
 
     # column_dimensions에 없는 열(기본 너비 사용) → 셀 내용 길이로 자동 산정
     auto_w: dict[str, int] = {}
-    for row in src_ws.iter_rows():
+    for row in src_ws.iter_rows(min_row=1, max_row=max_row,
+                                min_col=1, max_col=max_col):
         for cell in row:
             if isinstance(cell, MergedCell) or cell.value is None:
                 continue
@@ -645,8 +785,9 @@ def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
         except Exception:
             pass
 
-    # 셀 값 + 스타일 복사
-    for row in src_ws.iter_rows():
+    # 셀 값 + 스타일 복사 — 실제 데이터 범위로 제한
+    for row in src_ws.iter_rows(min_row=1, max_row=max_row,
+                                min_col=1, max_col=max_col):
         for src_cell in row:
             if isinstance(src_cell, MergedCell):
                 continue
@@ -667,10 +808,11 @@ def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
                 if src_cell.protection:
                     dst_cell.protection = copy(src_cell.protection)
 
-    # "COST PER THOUSAND (CPM)" 셀 border 누락 보정
+    # "COST PER THOUSAND (CPM)" 셀 border 누락 보정 — 실제 데이터 범위만 순회
     _thin = Side(style="thin")
     _border_fix = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
-    for row in dst_ws.iter_rows():
+    for row in dst_ws.iter_rows(min_row=1, max_row=max_row,
+                                min_col=1, max_col=max_col):
         for cell in row:
             if isinstance(cell, MergedCell):
                 continue

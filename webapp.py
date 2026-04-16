@@ -5,6 +5,9 @@ streamlit run webapp.py
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import tempfile
 from decimal import Decimal
 from pathlib import Path
@@ -12,15 +15,71 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_sortables import sort_items
 
 from billing.engine import calculate_billing, calculate_billing_by_project
-from billing.loader import load_sku_master, load_usage_rows, parse_gmp_price_excel
+from billing.loader import (
+    detect_price_list_currency,
+    load_sku_master,
+    load_usage_rows,
+)
 from billing.preprocessor import extract_company_names, preprocess_usage_file
 from invoice_generator import generate_formatted_invoice
 
 # ── 경로 상수 ─────────────────────────────────────────────────────────────────
 MASTER_CSV        = Path(__file__).parent / "billing" / "master_data.csv"
 PRICE_LIST_SAVED  = Path(__file__).parent / "billing" / "saved_price_list.xlsx"
+SAVED_ORDERS_FILE = Path(__file__).parent / "billing" / "saved_orders.json"
+
+
+# ── SKU 순서 저장/로드 (계정별) ─────────────────────────────────────────────
+def _load_saved_orders() -> dict[str, list[str]]:
+    if not SAVED_ORDERS_FILE.exists():
+        return {}
+    try:
+        return json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_order_for_account(account: str, order: list[str]) -> None:
+    data = _load_saved_orders()
+    data[account] = order
+    SAVED_ORDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_ORDERS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+# ── tax/VAT SKU 판별 (인보이스 본문에서 제외되는 항목) ─────────────────────
+_TAX_KW = ("세금", "tax", "vat")
+def _is_tax_sku(name: str) -> bool:
+    n = (name or "").lower()
+    return any(kw in n for kw in _TAX_KW)
+
+
+def _unique_skus_for_account(tmp_path: str, billing_month: str,
+                              account: str | None) -> list[str]:
+    """선택된 계정의 CSV에서 **실제 Invoice에 출력될** SKU명 리스트.
+    engine 필터와 동일 기준: 사용량 > 0 또는 cost_krw ≠ 0 이 있는 SKU만 (tax 제외).
+    """
+    rows = _cached_preprocess(tmp_path, billing_month, account)
+    # sku_name → "has any usage or cost" 플래그 집계
+    nonzero: dict[str, bool] = {}
+    for r in rows:
+        nm = (r.get("sku_name") or "").strip()
+        if not nm or _is_tax_sku(nm):
+            continue
+        if nonzero.get(nm):
+            continue
+        usage = int(r.get("usage_amount") or 0)
+        cost  = float(r.get("cost_krw") or 0)
+        if usage > 0 or cost != 0:
+            nonzero[nm] = True
+        else:
+            nonzero.setdefault(nm, False)
+    # True인 것만 반환, 알파벳순
+    return sorted(nm for nm, has in nonzero.items() if has)
 
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -148,6 +207,22 @@ button[kind="secondary"] {
     letter-spacing: 0.3px !important;
 }
 
+/* ── Selectbox (결제 계정) 흰색 배경 + teal 보더 ── */
+div[data-baseweb="select"] > div {
+    background-color: #ffffff !important;
+    border-color: #bdd8de !important;
+    border-radius: 10px !important;
+    min-height: 44px !important;
+}
+div[data-baseweb="select"] > div:hover {
+    border-color: #00788a !important;
+}
+div[data-baseweb="select"] input,
+div[data-baseweb="select"] span {
+    color: #1a3540 !important;
+    background-color: transparent !important;
+}
+
 /* ── 데이터프레임 ── */
 [data-testid="stDataFrame"],
 [data-testid="stDataEditor"] {
@@ -244,10 +319,78 @@ def _save_master_df(df: pd.DataFrame) -> None:
     df.to_csv(MASTER_CSV, index=False)
 
 
-def _get_file_preview(tmp_path: Path) -> dict:
-    """파일 기본 통계 (전처리 결과 기반, 전체 계정)."""
+# ── 캐시된 전처리: 같은 파일+월+계정 조합이면 pandas 파싱을 재사용 ────────────
+@st.cache_data(show_spinner=False)
+def _cached_preprocess(tmp_path: str, billing_month: str,
+                       company_filter: str | None) -> list[dict]:
+    return preprocess_usage_file(
+        tmp_path, billing_month, company_filter=company_filter
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _cached_companies(tmp_path: str) -> list[str]:
+    return extract_company_names(tmp_path)
+
+
+@st.cache_data(show_spinner=False, ttl=600)
+def _pdf_export_available() -> bool:
+    """세션 시작 시 한 번만 Excel COM 가용성 체크 (15초 이내, 10분 캐시)."""
     try:
-        rows = preprocess_usage_file(str(tmp_path), "0000-00")
+        from pdf_export import is_available
+        return bool(is_available())
+    except Exception:
+        return False
+
+
+@st.cache_data(show_spinner=False)
+def _detect_billing_month(tmp_path: str) -> str | None:
+    """CSV/Excel 상단 메타 영역에서 '인보이스 날짜' 를 찾아 YYYY-MM 으로 반환."""
+    p = Path(tmp_path)
+    if not p.exists():
+        return None
+    suffix = p.suffix.lower()
+
+    def _parse_line(line: str) -> str | None:
+        # "인보이스 날짜,2026-03-31," 또는 "인보이스 날짜,2026-03-31"
+        # "Invoice date,2026-03-31" 도 허용
+        lower = line.lower()
+        if "인보이스 날짜" in line or "invoice date" in lower:
+            for tok in line.replace("\t", ",").split(","):
+                tok = tok.strip().strip('"')
+                if len(tok) >= 7 and tok[4] == "-" and tok[:4].isdigit():
+                    return tok[:7]
+        return None
+
+    if suffix in (".csv",):
+        for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
+            try:
+                with open(p, encoding=enc, errors="strict") as f:
+                    for i, line in enumerate(f):
+                        if i > 30:   # 헤더 안에만 있음
+                            break
+                        ym = _parse_line(line)
+                        if ym: return ym
+                return None
+            except (UnicodeDecodeError, LookupError):
+                continue
+    elif suffix in (".xlsx", ".xls"):
+        try:
+            df = pd.read_excel(p, header=None, nrows=20, dtype=str)
+            for _, row in df.iterrows():
+                line = ",".join("" if pd.isna(v) else str(v) for v in row)
+                ym = _parse_line(line)
+                if ym: return ym
+        except Exception:
+            return None
+    return None
+
+
+@st.cache_data(show_spinner=False)
+def _get_file_preview(tmp_path: str) -> dict:
+    """파일 기본 통계 (전체 계정, preview 전용)."""
+    try:
+        rows = _cached_preprocess(tmp_path, "0000-00", None)
         return {
             "row_count":   len(rows),
             "proj_count":  len({r["project_id"] for r in rows}),
@@ -282,16 +425,57 @@ with st.sidebar:
 
     st.markdown("**📋 정산 기준 설정**")
 
-    billing_month = st.text_input(
-        "📅 정산월 (YYYY-MM)",
-        value="2026-03",
-        placeholder="예: 2026-03",
+    # ── 정산월: CSV 자동 감지 (직접 수정 불가) ──────────────────────────────
+    _auto_bm = st.session_state.get("_auto_billing_month")
+    billing_month = _auto_bm or ""
+    st.text_input(
+        "📅 정산월 (CSV 자동 감지)",
+        value=billing_month or "CSV 업로드 필요",
+        disabled=True,
+        help="CSV 파일 상단의 '인보이스 날짜' 에서 자동 추출됩니다.",
     )
-    exchange_rate = st.number_input(
+
+    # ── 단가표 통화 선택 (달러 / 원화) ──────────────────────────────────────
+    # 단가표 업로드 시 detect_price_list_currency() 결과가 기본값으로 세팅되며
+    # 사용자는 라디오로 수동 교정 가능.
+    #   - 달러: 기존 로직 (환율 입력 필요, Invoice에 $ 단가/합계, Project에 toal($))
+    #   - 원화: 환율 미사용, 모든 금액 ₩ 표기, 합계/환율 행 생략
+    _detected = st.session_state.get("_detected_currency", "USD")
+    _cur_options = ["달러 ($)", "원화 (₩)"]
+    _cur_idx     = 0 if _detected == "USD" else 1
+    currency_label = st.radio(
+        "💰 단가표 통화",
+        options=_cur_options,
+        index=_cur_idx,
+        horizontal=True,
+        key="_currency_radio",
+        help="단가표가 USD 기준이면 '달러', KRW 기준이면 '원화'를 선택하세요. "
+             "단가표 업로드 시 자동 감지됩니다.",
+    )
+    currency = "USD" if currency_label.startswith("달러") else "KRW"
+
+    # ── 환율: 달러 모드에서만 입력 가능 (원화 모드에선 사용 안 함) ───────────
+    # 포맷 규칙 (JS):
+    #   - 숫자만 남긴 뒤 앞 4자리=정수부 / 다음 2자리=소수부
+    #   - 입력 중 4자리 초과 시 자동으로 "." 삽입
+    #   - 포커스 아웃 시 소수부 2자리 0 패딩 ("1427" → "1427.00")
+    _rate_raw = st.text_input(
         "💱 환율 (USD → KRW)",
-        min_value=500.0, max_value=3000.0,
-        value=1525.3, step=1.0, format="%g",
+        value=st.session_state.get("_rate_raw", ""),
+        max_chars=7,
+        placeholder="예: 1427.87" if currency == "USD" else "원화 모드 — 입력 불필요",
+        key="_rate_raw_input",
+        disabled=(currency == "KRW"),
     )
+    # 숫자 파싱 — 유효한 수치만 사용 (원화 모드에선 1.0 으로 고정)
+    if currency == "KRW":
+        exchange_rate = 1.0   # placeholder — 원화 모드에선 실제로 사용 안 함
+    else:
+        try:
+            exchange_rate = float(_rate_raw) if _rate_raw else 0.0
+        except ValueError:
+            exchange_rate = 0.0
+
     bank_name = st.text_input(
         "🏦 은행",
         value="하나은행",
@@ -300,10 +484,70 @@ with st.sidebar:
 
     st.divider()
     sku_count = st.session_state.master_df["sku_id"].nunique()
+    if currency == "KRW":
+        _rate_disp = "— 원화 모드 (환율 미사용)"
+    else:
+        _rate_disp = f"{exchange_rate:,.2f} KRW/USD" if exchange_rate > 0 else "— 입력 필요"
     st.caption(
-        f"적용 환율: {exchange_rate:,.0f} KRW/USD\n"
+        f"단가표 통화: **{currency}**\n"
+        f"적용 환율: {_rate_disp}\n"
         f"등록 SKU: {sku_count} 종"
     )
+
+# ── 환율 입력란 JS 포맷터 (4-digit auto-dot + decimal zero-pad on blur) ───
+components.html(
+    """
+    <script>
+    (function(){
+      function patchRate(){
+        try {
+          var doc = window.parent.document;
+          var inputs = doc.querySelectorAll('input[aria-label*="환율"]');
+          inputs.forEach(function(inp){
+            if (inp._ratePatched) return;
+            inp._ratePatched = true;
+            var nativeSetter = Object.getOwnPropertyDescriptor(
+              window.parent.HTMLInputElement.prototype, 'value'
+            ).set;
+            function setVal(v){
+              nativeSetter.call(inp, v);
+              inp.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            inp.addEventListener('input', function(){
+              var digits = inp.value.replace(/\\D/g,'');
+              if (digits.length > 6) digits = digits.substring(0, 6);
+              var formatted;
+              if (digits.length <= 4) {
+                formatted = digits;
+              } else {
+                formatted = digits.substring(0, 4) + '.' + digits.substring(4);
+              }
+              if (formatted !== inp.value) setVal(formatted);
+            });
+            inp.addEventListener('blur', function(){
+              var v = inp.value;
+              if (!v) return;
+              var digits = v.replace(/\\D/g,'');
+              if (digits.length === 0) return;
+              var intp = digits.substring(0, 4);
+              var decp = digits.substring(4, 6);
+              if (intp.length < 4) return;   // 정수부 미완성이면 그대로 둠
+              decp = (decp + '00').substring(0, 2);
+              var formatted = intp + '.' + decp;
+              if (formatted !== v) setVal(formatted);
+            });
+          });
+        } catch(e) {}
+      }
+      new MutationObserver(patchRate).observe(
+        window.parent.document.body, { subtree: true, childList: true }
+      );
+      patchRate();
+    })();
+    </script>
+    """,
+    height=0,
+)
 
 # ── 설정 변경 감지 → 이전 결과 자동 무효화 ────────────────────────────────────
 _current_calc_key = f"{billing_month}|{exchange_rate}|{bank_name}"
@@ -393,14 +637,10 @@ components.html("""
 </script>
 """, height=0)
 
-# ── 탭 UI ─────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["🚀  통합 정산 실행", "⚙️  SKU 단가 관리"])
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# Tab 1 ─ 통합 정산 실행
+# 통합 정산 실행 (flat — 탭 제거)
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab1:
+if True:
 
     # ── ① 단가표(GMP Price List) 첨부 — 저장 유지 ───────────────────────────
     _has_saved = PRICE_LIST_SAVED.exists()
@@ -420,6 +660,7 @@ with tab1:
                              help="저장된 단가표를 삭제합니다"):
                     PRICE_LIST_SAVED.unlink(missing_ok=True)
                     st.session_state.pop("_saved_price_key", None)
+                    st.session_state.pop("_detected_currency", None)
                     st.success("단가표가 삭제되었습니다.")
                     st.rerun()
 
@@ -432,6 +673,12 @@ with tab1:
             PRICE_LIST_SAVED.write_bytes(_uploaded_price.read())
             st.session_state["_saved_price_key"] = _price_key
             st.session_state["_price_flash"] = _uploaded_price.name
+            # 단가표 통화(USD/KRW) 자동 감지 → 사이드바 라디오 기본값에 반영
+            try:
+                _detected_cur = detect_price_list_currency(PRICE_LIST_SAVED)
+                st.session_state["_detected_currency"] = _detected_cur
+            except Exception:
+                pass
             st.rerun()
         _has_saved = True
 
@@ -445,7 +692,19 @@ with tab1:
         price_list_file = _uploaded_price
     elif _has_saved:
         price_list_file = PRICE_LIST_SAVED
-        st.info(f"📂 저장된 단가표 사용 중 — **{PRICE_LIST_SAVED.name}**  *(우측 🗑 버튼으로 삭제)*")
+        # 저장파일 기준으로도 통화 재확인 (세션 초기 로드 시)
+        if "_detected_currency" not in st.session_state:
+            try:
+                st.session_state["_detected_currency"] = (
+                    detect_price_list_currency(PRICE_LIST_SAVED)
+                )
+            except Exception:
+                st.session_state["_detected_currency"] = "USD"
+        _cur_tag = st.session_state.get("_detected_currency", "USD")
+        st.info(
+            f"📂 저장된 단가표 사용 중 — **{PRICE_LIST_SAVED.name}** "
+            f"(감지 통화: **{_cur_tag}**) *(우측 🗑 버튼으로 삭제)*"
+        )
     else:
         price_list_file = None
         st.caption("단가표 미첨부 — 업로드 시 3번째 시트로 이식됩니다.")
@@ -473,9 +732,14 @@ with tab1:
 
             st.session_state._file_key  = file_key
             st.session_state._tmp_path  = str(tmp_path)
-            st.session_state._companies = extract_company_names(tmp_path)
-            st.session_state._preview   = _get_file_preview(tmp_path)
+            st.session_state._companies = _cached_companies(str(tmp_path))
+            st.session_state._preview   = _get_file_preview(str(tmp_path))
+            # 정산월 자동 감지 — CSV '인보이스 날짜' 에서 YYYY-MM 추출
+            _detected_bm = _detect_billing_month(str(tmp_path))
+            if _detected_bm:
+                st.session_state._auto_billing_month = _detected_bm
             st.session_state.pop("_last_result", None)  # 이전 결과 초기화
+            st.rerun()   # 사이드바의 자동 감지 정산월 표시를 즉시 반영
 
         tmp_input_path = Path(st.session_state._tmp_path)
         companies      = st.session_state._companies
@@ -530,48 +794,262 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
-        # ── 결제 계정 선택 + 실행 버튼 ───────────────────────────────────────
+        # ── 결제 계정 선택 (전체 폭) ─────────────────────────────────────────
         st.markdown("#### 정산 대상 선택")
-        col_sel, col_btn = st.columns([4, 1], vertical_alignment="bottom")
-        with col_sel:
-            if companies:
-                selected_company = st.selectbox(
-                    "결제 계정 (Billing Account Name)",
-                    options=companies,
-                )
-            else:
-                selected_company = None
-                st.info("파일에서 결제 계정 정보를 찾을 수 없습니다. 전체 데이터를 처리합니다.")
+        if companies:
+            selected_company = st.selectbox(
+                "결제 계정 (Billing Account Name)",
+                options=companies,
+            )
+        else:
+            selected_company = None
+            st.info("파일에서 결제 계정 정보를 찾을 수 없습니다. 전체 데이터를 처리합니다.")
 
-        with col_btn:
+        # ── 좌: 드래그앤드롭 | 우: 다운로드 체크박스 + 정산 시작 ────────────
+        _order_account_key = selected_company or "__ALL__"
+        _found_skus = _unique_skus_for_account(
+            str(tmp_input_path), billing_month, selected_company
+        )
+
+        col_left, col_right = st.columns([1, 1], vertical_alignment="top", gap="large")
+
+        # ═══ 좌측: SKU 순서 드래그앤드롭 ═══════════════════════════════════
+        with col_left:
+            if _found_skus:
+                _saved_orders = _load_saved_orders()
+                _saved_for_this = _saved_orders.get(_order_account_key, [])
+
+                # 저장된 순서 + 이번 CSV에 신규로 등장한 항목 분리
+                _existing   = [n for n in _saved_for_this if n in _found_skus]
+                _new_items  = [n for n in _found_skus if n not in _existing]
+                _NEW_COUNT  = len(_new_items)
+
+                st.markdown("#### 📋 엑셀 SKU 노출 순서")
+                if _new_items and _existing:
+                    st.caption(
+                        "연한 초록 배경 = **[신규 항목]**. 드래그로 위치 조정 후 "
+                        "**현재 순서 저장** 을 누르세요."
+                    )
+                elif _new_items and not _existing:
+                    st.caption(
+                        "모두 새로 발견된 SKU입니다. 드래그로 순서 지정 후 "
+                        "**현재 순서 저장** 을 누르세요."
+                    )
+                else:
+                    st.caption("드래그하여 엑셀에 나올 순서를 조정하세요.")
+
+                # 신규 항목은 라벨에 [신규 항목] prefix로 표시 (저장 전 제거)
+                _NEW_PREFIX = "[신규 항목] "
+                _initial = _existing + [f"{_NEW_PREFIX}{n}" for n in _new_items]
+
+                # sortable 컴포넌트 key: 입력 항목이 변경되면 새 key로 캐시 초기화
+                _items_fingerprint = hashlib.md5(
+                    "\x1f".join(_initial).encode("utf-8")
+                ).hexdigest()[:10]
+                _order_state_key = (
+                    f"_sku_order::{_order_account_key}::{_items_fingerprint}"
+                )
+
+                # 사이트 룩앤필 스타일 (teal / light-green 팔레트)
+                # ⚠ 떨림 방지 최종 대응:
+                #   (a) 모든 transition/animation 완전 억제 — SortableJS 내부
+                #       기본 transition 까지 덮어씀.
+                #   (b) contain: strict → 자식 요소의 어떤 변경도 바깥 레이아웃에
+                #       전파되지 않도록 CSS containment 로 격리.
+                #   (c) item 에 고정 min-height + box-sizing:border-box →
+                #       텍스트·폰트 렌더링 차이로 인한 픽셀 단위 변화 차단.
+                #   (d) :hover 룰 전면 제거 — cursor 만 변경.
+                _new_css = ""
+                if _NEW_COUNT > 0:
+                    _new_css = f"""
+                    .sortable-item:nth-last-child(-n+{_NEW_COUNT}) {{
+                        background: linear-gradient(135deg, #f2fae3 0%, #e4f2cd 100%);
+                        border-color: #cfe7a8;
+                        border-left-color: #7dbb26;
+                        color: #1b3d06;
+                    }}
+                    """
+
+                _SORT_CSS = """
+                /* (a) 컴포넌트 내부 모든 전이/애니메이션 차단 — iframe 리플로우 원천 차단 */
+                .sortable-component,
+                .sortable-component *,
+                .sortable-item,
+                .sortable-item * {
+                    transition: none !important;
+                    animation: none !important;
+                }
+                /* (b) 레이아웃 격리 */
+                .sortable-component {
+                    background: linear-gradient(135deg,#f8fcfd 0%,#edf6f8 100%);
+                    border: 2px dashed #00788a;
+                    border-radius: 14px;
+                    padding: 14px;
+                    gap: 8px;
+                    contain: layout style;
+                }
+                .sortable-item {
+                    background: #ffffff;
+                    color: #1a3540;
+                    border: 1.5px solid #bdd8de;
+                    border-left: 4px solid #00788a;
+                    border-radius: 10px;
+                    padding: 10px 14px;
+                    font-weight: 600;
+                    font-size: 0.92rem;
+                    cursor: grab;
+                    user-select: none;
+                    /* (c) 고정 높이 + 박스 모델 안정화 */
+                    min-height: 42px;
+                    box-sizing: border-box;
+                    width: 100%;
+                    /* (b) 자식 변경 격리 */
+                    contain: layout style paint;
+                }
+                .sortable-item:active { cursor: grabbing; }
+                /* (d) :hover 상태 변경 없음 — 의도적으로 비움 */
+                """ + _new_css
+
+                _reordered = sort_items(
+                    _initial,
+                    direction="vertical",
+                    custom_style=_SORT_CSS,
+                    key=_order_state_key,
+                )
+
+                # prefix 제거해 실제 SKU 순서 확정
+                sku_order = [
+                    (x[len(_NEW_PREFIX):] if x.startswith(_NEW_PREFIX) else x)
+                    for x in _reordered
+                ]
+
+                # 현재 순서 저장 버튼 (secondary)
+                if st.button(
+                    "💾  현재 순서 저장",
+                    key=f"_save_order_btn_{_order_account_key}",
+                    type="secondary",
+                    use_container_width=True,
+                    help=f"'{_order_account_key}' 계정의 현재 SKU 순서를 저장합니다.",
+                ):
+                    _save_order_for_account(_order_account_key, sku_order)
+                    st.toast(
+                        f"✅ '{_order_account_key}' SKU 순서 저장 완료",
+                        icon="💾",
+                    )
+                    st.rerun()
+            else:
+                sku_order = []
+                st.info("표시할 SKU가 없습니다. CSV를 확인하세요.")
+
+        # ═══ 우측: 다운로드 옵션 + 정산 시작 ═══════════════════════════════
+        with col_right:
+            st.markdown("#### ⚙️ 다운로드 옵션")
+            st.markdown(
+                """
+                <div style="
+                    background: linear-gradient(135deg,#f8fcfd 0%,#edf6f8 100%);
+                    border: 1.5px solid #bdd8de;
+                    border-radius: 14px;
+                    padding: 18px 22px;
+                    margin-bottom: 14px;
+                ">
+                """,
+                unsafe_allow_html=True,
+            )
+            dl_excel = st.checkbox(
+                "📗 엑셀 다운받기 (.xlsx)",
+                value=True,
+                key="_dl_excel_chk",
+                help="Invoice / Project / GMP Price List 3개 시트로 구성된 엑셀 파일",
+            )
+            _pdf_ok = _pdf_export_available()
+            _pdf_label = (
+                "📄 PDF 다운받기 (Invoice 시트)"
+                if _pdf_ok else
+                "📄 PDF 다운받기 (사용 불가 — Excel/pywin32 확인 필요)"
+            )
+            dl_pdf = st.checkbox(
+                _pdf_label,
+                value=False,
+                key="_dl_pdf_chk",
+                disabled=not _pdf_ok,
+                help="엑셀의 Invoice 시트를 PDF로 변환해 동일한 레이아웃으로 출력합니다. "
+                     "(Microsoft Excel 이 설치된 Windows 환경에서만 동작)",
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # 버튼은 항상 클릭 가능 — 검증은 클릭 시점에 얼럿/토스트로 처리
             run_button = st.button(
                 "▶  정산 시작",
                 type="primary",
-                width='stretch',
+                use_container_width=True,
             )
+
+        # 클릭 시점 검증 — 미충족 시 얼럿 후 run_button 을 False 로 재설정
+        if run_button:
+            _missing_msgs: list[str] = []
+            if not billing_month:
+                _missing_msgs.append("CSV 파일을 먼저 업로드해주세요.")
+            # 환율은 달러 모드에서만 필수 (원화 모드는 환율 미사용)
+            if currency == "USD" and (not exchange_rate or exchange_rate <= 0):
+                _missing_msgs.append("환율을 입력해 주세요")
+            if not (dl_excel or dl_pdf):
+                _missing_msgs.append("다운로드 형식(엑셀 / PDF)을 하나 이상 선택해주세요.")
+
+            if _missing_msgs:
+                for _m in _missing_msgs:
+                    st.toast(f"⚠ {_m}", icon="⚠️")
+                st.error(" / ".join(_missing_msgs))
+                run_button = False   # 아래 정산 블록 실행 차단
 
         # ── 정산 실행 ─────────────────────────────────────────────────────────
         if run_button:
             sku_rows = _df_to_sku_rows(st.session_state.master_df)
             if not sku_rows:
-                st.error("SKU 마스터 데이터가 없습니다. [⚙️ SKU 단가 관리] 탭에서 단가표를 확인하세요.")
+                st.error("SKU 마스터 데이터가 없습니다. billing/master_data.csv 를 확인하세요.")
             else:
                 prog = st.progress(0, text="⚙️ 파일 전처리 중...")
                 try:
-                    raw_rows = preprocess_usage_file(
-                        str(tmp_input_path), billing_month,
-                        company_filter=selected_company,
+                    raw_rows = _cached_preprocess(
+                        str(tmp_input_path), billing_month, selected_company
                     )
-                    prog.progress(28, text="📦 SKU 마스터 로드 중...")
+                    prog.progress(20, text="📦 SKU 마스터 로드 중...")
 
                     sku_master = load_sku_master(sku_rows)
                     usage_rows = load_usage_rows(raw_rows)
 
-                    prog.progress(52, text="🧮 Waterfall 과금 계산 중...")
+                    prog.progress(35, text="🧮 Waterfall 과금 계산 중...")
                     _ex = Decimal(str(exchange_rate))
                     _mr = Decimal(str(margin_rate))
                     line_items   = calculate_billing(usage_rows, sku_master, _ex, _mr)
                     proj_results = calculate_billing_by_project(usage_rows, sku_master, _ex, _mr)
+
+                    prog.progress(55, text="📄 Excel 인보이스 생성 중...")
+                    _safe        = (selected_company or "전체").replace("/", "_").replace("\\", "_")
+                    _fname_xlsx  = f"정산리포트_{_safe}_{billing_month}.xlsx"
+                    _fname_pdf   = f"정산리포트_{_safe}_{billing_month}.pdf"
+                    _excel_bytes = generate_formatted_invoice(
+                        line_items      = line_items,
+                        company_name    = selected_company or "전체",
+                        billing_month   = billing_month,
+                        exchange_rate   = _ex,
+                        margin_rate     = _mr,
+                        bank_name       = bank_name,
+                        proj_results    = proj_results,
+                        price_list_file = price_list_file,
+                        sku_order       = sku_order or None,
+                        currency        = currency,
+                    )
+
+                    # PDF 변환 (체크된 경우만)
+                    _pdf_bytes = None
+                    _pdf_error = None
+                    if dl_pdf:
+                        prog.progress(75, text="📄 PDF 변환 중 (Excel 실행)...")
+                        from pdf_export import xlsx_sheet_to_pdf
+                        _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(
+                            _excel_bytes, "Invoice"
+                        )
 
                     prog.progress(100, text="✅ 완료!")
                     prog.empty()
@@ -584,39 +1062,95 @@ with tab1:
                         "exchange_rate":   _ex,
                         "margin_rate":     _mr,
                         "bank_name":       bank_name,
-                        "price_list_file": price_list_file,
+                        "excel_bytes":     _excel_bytes if dl_excel else None,
+                        "excel_filename":  _fname_xlsx,
+                        "pdf_bytes":       _pdf_bytes,
+                        "pdf_filename":    _fname_pdf,
+                        "pdf_error":       _pdf_error,
                     }
+                    # 자동 다운로드용 키 — 같은 결과를 재 다운로드하지 않도록
+                    st.session_state._auto_dl_key = (
+                        f"{selected_company}|{billing_month}|{len(_excel_bytes)}|"
+                        f"{'X' if dl_excel else '-'}{'P' if dl_pdf else '-'}"
+                    )
+                    st.session_state.pop("_auto_dl_fired", None)
 
                 except Exception as exc:
                     prog.empty()
                     st.error(f"정산 중 오류가 발생했습니다:\n\n```\n{exc}\n```")
 
-        # ── 다운로드 버튼 (정산 완료 시 실행 버튼 아래 중앙 고정) ───────────────
+        # ── 정산 완료 후: 자동 다운로드 트리거 + 수동 다운로드 버튼 ────────────
         result = st.session_state.get("_last_result")
         if result and result.get("line_items"):
-            _dl_comp  = result["company"]
-            _dl_bm    = result["billing_month"]
-            _safe     = (_dl_comp or "전체").replace("/", "_").replace("\\", "_")
-            _fname    = f"정산리포트_{_safe}_{_dl_bm}.xlsx"
-            _excel_bytes = generate_formatted_invoice(
-                line_items      = result["line_items"],
-                company_name    = _dl_comp or "전체",
-                billing_month   = _dl_bm,
-                exchange_rate   = result["exchange_rate"],
-                margin_rate     = result["margin_rate"],
-                bank_name       = result["bank_name"],
-                proj_results    = result["proj_results"],
-                price_list_file = result.get("price_list_file"),
-            )
-            _, _dl_mid, _ = st.columns([1, 2, 1])
-            with _dl_mid:
-                st.download_button(
-                    label=f"⬇  {_fname}  다운로드",
-                    data=_excel_bytes,
-                    file_name=_fname,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
+            _excel_bytes = result.get("excel_bytes")
+            _pdf_bytes   = result.get("pdf_bytes")
+            _fname_xlsx  = result.get("excel_filename")
+            _fname_pdf   = result.get("pdf_filename")
+            _pdf_error   = result.get("pdf_error")
+
+            if _pdf_error:
+                st.warning(f"⚠ {_pdf_error}")
+
+            # 자동 다운로드 (이번 결과에 대해 1회만 발사)
+            _dl_key = st.session_state.get("_auto_dl_key")
+            if _dl_key and st.session_state.get("_auto_dl_fired") != _dl_key:
+                _MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                _MIME_PDF  = "application/pdf"
+
+                _anchors = []
+                _clicks  = []
+                if _excel_bytes:
+                    _b64 = base64.b64encode(_excel_bytes).decode()
+                    _anchors.append(
+                        f'<a id="_dl_xlsx" href="data:{_MIME_XLSX};base64,{_b64}" '
+                        f'download="{_fname_xlsx}" style="display:none">excel</a>'
+                    )
+                    _clicks.append(
+                        'setTimeout(function(){var a=document.getElementById("_dl_xlsx");'
+                        'if(a)a.click();}, 120);'
+                    )
+                if _pdf_bytes:
+                    _b64 = base64.b64encode(_pdf_bytes).decode()
+                    _anchors.append(
+                        f'<a id="_dl_pdf" href="data:{_MIME_PDF};base64,{_b64}" '
+                        f'download="{_fname_pdf}" style="display:none">pdf</a>'
+                    )
+                    # Excel 먼저, PDF는 800ms 뒤 (멀티 다운로드 차단 회피)
+                    _clicks.append(
+                        'setTimeout(function(){var a=document.getElementById("_dl_pdf");'
+                        'if(a)a.click();}, 900);'
+                    )
+
+                if _anchors:
+                    components.html(
+                        "<html><body>"
+                        + "".join(_anchors)
+                        + "<script>" + "".join(_clicks) + "</script>"
+                        + "</body></html>",
+                        height=0,
+                    )
+                    st.session_state._auto_dl_fired = _dl_key
+
+            # 수동 재다운로드 버튼
+            _btn_cols = st.columns(2)
+            if _excel_bytes:
+                with _btn_cols[0]:
+                    st.download_button(
+                        label=f"⬇  {_fname_xlsx}  다시 다운로드",
+                        data=_excel_bytes,
+                        file_name=_fname_xlsx,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                    )
+            if _pdf_bytes:
+                with _btn_cols[1]:
+                    st.download_button(
+                        label=f"⬇  {_fname_pdf}  다시 다운로드",
+                        data=_pdf_bytes,
+                        file_name=_fname_pdf,
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
 
         # ── 결과 출력 ─────────────────────────────────────────────────────────
         if result:
@@ -704,180 +1238,3 @@ with tab1:
 
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Tab 2 ─ SKU 단가 관리
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab2:
-    st.markdown("#### ⚙️ SKU 마스터 단가표 관리")
-    st.caption(
-        "테이블에서 직접 단가를 수정하거나, 표준 양식 CSV를 다운로드해 수정 후 업로드하세요. "
-        "저장 후 [통합 정산 실행] 탭의 계산에 즉시 반영됩니다."
-    )
-
-    col_cfg = {
-        "sku_id":        st.column_config.TextColumn("SKU ID",          width="medium"),
-        "sku_name":      st.column_config.TextColumn("SKU명",           width="medium"),
-        "is_billable":   st.column_config.CheckboxColumn("과금 여부",   width="small"),
-        "category":      st.column_config.SelectboxColumn(
-                             "카테고리", width="small",
-                             options=["Maps", "Places", "Routes", "Environment", "Tax", "Other"],
-                         ),
-        "free_usage_cap": st.column_config.NumberColumn(
-                              "무료 제공량 (건/월)", min_value=0, format="%d", width="medium",
-                          ),
-        "tier_number":   st.column_config.NumberColumn(
-                             "구간 번호", min_value=1, format="%d", width="small",
-                         ),
-        "tier_limit":    st.column_config.NumberColumn(
-                             "구간 상한 (건)", min_value=0, format="%d", width="medium",
-                             help="마지막 구간(무제한)은 비워두세요",
-                         ),
-        "tier_cpm":      st.column_config.NumberColumn(
-                             "단가 (USD / 1,000건)", min_value=0.0,
-                             format="$%.4f", width="medium",
-                         ),
-    }
-
-    edited_df = st.data_editor(
-        st.session_state.master_df,
-        column_config=col_cfg,
-        num_rows="dynamic",
-        width='stretch',
-        hide_index=True,
-        key="sku_editor",
-    )
-
-    col_save, col_dl, col_ul_label = st.columns([1, 1, 1])
-
-    with col_save:
-        if st.button("💾  변경사항 저장", type="primary", width='stretch'):
-            st.session_state.master_df = edited_df.copy()
-            _save_master_df(edited_df)
-            st.success("✅ 저장 완료 — 정산 계산에 즉시 반영됩니다.")
-
-    with col_dl:
-        csv_bytes = edited_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            label="⬇  현재 단가표 CSV 다운로드",
-            data=csv_bytes,
-            file_name="master_data_template.csv",
-            mime="text/csv",
-            width='stretch',
-        )
-
-    with col_ul_label:
-        uploaded_master = st.file_uploader(
-            "📤  단가표 CSV 업로드",
-            type=["csv"],
-            key="master_uploader",
-            label_visibility="collapsed",
-            help="표준 양식(위 다운로드)에 맞춰 작성한 CSV를 업로드하세요.",
-        )
-
-    if uploaded_master is not None:
-        try:
-            new_df = pd.read_csv(uploaded_master, dtype=str)
-            new_df["is_billable"] = new_df["is_billable"].map(
-                {"True": True, "False": False, "true": True, "false": False}
-            ).fillna(False)
-            new_df["free_usage_cap"] = (
-                pd.to_numeric(new_df["free_usage_cap"], errors="coerce").fillna(0).astype(int)
-            )
-            for col in ("tier_number", "tier_limit", "tier_cpm"):
-                new_df[col] = pd.to_numeric(new_df[col], errors="coerce")
-            st.session_state.master_df = new_df
-            _save_master_df(new_df)
-            st.success(f"✅ 단가표 업로드 완료 — {len(new_df)}행 적용됨")
-            st.rerun()
-        except Exception as exc:
-            st.error(f"파일 처리 오류: {exc}")
-
-    st.divider()
-    st.markdown("##### 📌 컬럼 설명")
-    st.markdown("""
-| 컬럼 | 설명 |
-|------|------|
-| **SKU ID** | 구글 API SKU의 고유 해시 ID (예: `FAF4-3B2D-51B2`) |
-| **SKU명** | SKU 표시 이름 (예: `Dynamic Maps`) |
-| **과금 여부** | 체크 = 과금 대상, 미체크 = 세금 등 비과금 항목 |
-| **카테고리** | Maps / Places / Routes / Tax 등 |
-| **무료 제공량** | 월별 무료 제공 건수 (Waterfall 계산 전 선차감) |
-| **구간 번호** | Waterfall 구간 순번 (1부터 오름차순, SKU별로 구성) |
-| **구간 상한** | 해당 구간의 누적 사용량 상한 — 마지막 구간은 비워두면 무제한 처리 |
-| **단가 ($/1K)** | 해당 구간의 1,000건당 USD 단가 |
-""")
-
-    # ── GMP 공식 요금표 Excel 업로드 ──────────────────────────────────────
-    st.divider()
-    with st.expander("📥  GMP 공식 요금표 Excel로 단가표 자동 생성", expanded=False):
-        st.caption(
-            "구글 Maps Platform 공식 요금표 Excel(.xlsx)을 업로드하면 "
-            "단가표를 자동으로 파싱합니다. "
-            "파싱 후 SKU ID를 실제 청구 ID로 수정하고 저장하세요."
-        )
-        uploaded_price_xl = st.file_uploader(
-            "GMP 요금표 Excel 업로드",
-            type=["xlsx"],
-            key="price_excel_uploader",
-            label_visibility="collapsed",
-        )
-
-        if uploaded_price_xl is not None:
-            try:
-                with st.spinner("요금표 파싱 중..."):
-                    parsed_rows = parse_gmp_price_excel(uploaded_price_xl.read())
-
-                if not parsed_rows:
-                    st.warning(
-                        "파싱된 데이터가 없습니다. "
-                        "파일 형식을 확인하세요 (A열에 'Monthly volume range' 헤더가 있어야 합니다)."
-                    )
-                else:
-                    parsed_df = pd.DataFrame(parsed_rows)
-
-                    parsed_df["is_billable"] = parsed_df["is_billable"].astype(bool)
-                    parsed_df["free_usage_cap"] = (
-                        pd.to_numeric(parsed_df["free_usage_cap"], errors="coerce")
-                        .fillna(0).astype(int)
-                    )
-                    for col in ("tier_number", "tier_limit", "tier_cpm"):
-                        parsed_df[col] = pd.to_numeric(parsed_df[col], errors="coerce")
-
-                    n_skus = parsed_df["sku_id"].nunique()
-                    n_rows_parsed = len(parsed_df)
-
-                    st.success(
-                        f"✅ 파싱 완료 — SKU {n_skus}종 / 구간 행 {n_rows_parsed}개"
-                    )
-                    st.info(
-                        "⚠️ SKU ID는 API명 기반 합성 ID입니다. "
-                        "실제 구글 청구 데이터의 SKU ID(예: `FAF4-3B2D-51B2`)와 "
-                        "일치하도록 적용 후 직접 수정하세요."
-                    )
-
-                    st.dataframe(
-                        parsed_df,
-                        width='stretch',
-                        hide_index=True,
-                        column_config={
-                            "free_usage_cap": st.column_config.NumberColumn(
-                                "무료 제공량", format="%d"
-                            ),
-                            "tier_cpm": st.column_config.NumberColumn(
-                                "단가 ($/1K)", format="$%.4f"
-                            ),
-                        },
-                    )
-
-                    if st.button(
-                        "⬆  위 파싱 결과를 단가표에 적용 (기존 데이터 덮어쓰기)",
-                        type="primary",
-                        key="apply_parsed_excel",
-                    ):
-                        st.session_state.master_df = parsed_df.copy()
-                        _save_master_df(parsed_df)
-                        st.success("✅ 단가표 적용 완료 — 위 편집 테이블을 확인하고 SKU ID를 수정하세요.")
-                        st.rerun()
-
-            except Exception as exc:
-                st.error(f"요금표 파싱 오류:\n\n```\n{exc}\n```")

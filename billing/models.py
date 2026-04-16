@@ -40,6 +40,7 @@ class UsageRow:
     usage_amount: int
     cost_krw: Optional[Decimal] = None   # 실제 청구 KRW 비용 (CSV에서 읽음)
     unit_price: Optional[float] = None   # 공시 단가 (CSV 단가 컬럼 또는 None)
+    sku_name: str = ""                   # CSV의 SKU 설명 (master에 없는 SKU도 이름 표기)
 
 
 @dataclass

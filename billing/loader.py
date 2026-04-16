@@ -1,4 +1,4 @@
-import hashlib, io, re
+import io, re
 from decimal import Decimal
 from typing import Any
 from billing.models import Sku, SkuTier, UsageRow
@@ -68,6 +68,44 @@ def parse_gmp_price_excel(file_bytes: bytes) -> list[dict]:
     
     return list(result_map.values())
 
+def detect_price_list_currency(price_list_file) -> str:
+    """GMP Price List 의 tier 단가 값을 보고 통화를 추정.
+
+    판정 기준: tier 단가 컬럼(D~H, rows 4~50) 의 숫자값을 수집해
+    최댓값이 100 이상이면 'KRW', 그 외는 'USD'.
+      - USD 단가 예시: 0.15 ~ 30  (최대 30 내외)
+      - KRW 단가 예시: 800 ~ 50000
+    두 분포의 오버랩이 없어 단순 임계치로 안전하게 구분 가능.
+
+    인자: 파일 경로(str | Path) 또는 file-like 객체 또는 bytes.
+    반환: 'USD' (기본) 또는 'KRW'.
+    """
+    import io
+    from openpyxl import load_workbook
+    try:
+        if hasattr(price_list_file, "read"):
+            price_list_file.seek(0)
+            wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
+        elif isinstance(price_list_file, (bytes, bytearray)):
+            wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
+        else:
+            wb = load_workbook(str(price_list_file), data_only=True)
+    except Exception:
+        return "USD"
+
+    ws = wb.worksheets[0]
+    prices: list[float] = []
+    for row in ws.iter_rows(min_row=4, max_row=50,
+                            min_col=4, max_col=9, values_only=True):
+        for v in row:
+            if isinstance(v, (int, float)) and v > 0:
+                prices.append(float(v))
+
+    if not prices:
+        return "USD"
+    return "KRW" if max(prices) >= 100 else "USD"
+
+
 def load_usage_rows(rows: list[dict[str, Any]]) -> list[UsageRow]:
     from decimal import Decimal as _D
     result = []
@@ -79,6 +117,7 @@ def load_usage_rows(rows: list[dict[str, Any]]) -> list[UsageRow]:
             project_id=r["project_id"],
             project_name=r.get("project_name", r["project_id"]),
             sku_id=r["sku_id"],
+            sku_name=r.get("sku_name", "") or "",
             usage_amount=int(r["usage_amount"]),
             cost_krw=cost_krw,
             unit_price=r.get("unit_price"),

@@ -1,0 +1,35 @@
+{
+  "11st": [
+    "Dynamic Maps",
+    "Active Logical Storage",
+    "Long Term Logical Storage",
+    "Log Storage cost"
+  ],
+  "dogtra": [
+    "Static Maps",
+    "Active Logical Storage",
+    "Dynamic Maps",
+    "Geocoding",
+    "Log Storage cost",
+    "Long Term Logical Storage",
+    "Maps SDK"
+  ],
+  "coupang": [
+    "Dynamic Maps",
+    "Directions",
+    "Geocoding",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Query Autocomplete - Per Request",
+    "Places Details",
+    "Basic Data",
+    "Contact Data",
+    "Atmosphere Data",
+    "Places - Nearby Search",
+    "Find Place",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Maps SDK",
+    "Places - Text Search",
+    "Static Maps"
+  ]
+}

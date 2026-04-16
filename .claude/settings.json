@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"c:/Users/User/OneDrive/바탕 화면/회사/00.연습/yoon/\"*.csv)",
+      "Bash(python -c ':*)",
+      "Bash(py -c \"import pandas, openpyxl; print\\(pandas.__version__, openpyxl.__version__\\)\")",
+      "Bash(py -c ':*)",
+      "Bash(py -X utf8 -c ':*)",
+      "Bash(py -X utf8 generate_invoice_excel.py)",
+      "Bash(ls -la template*.xlsx *.xlsx)",
+      "Bash(py -X utf8 fill_invoice_from_template.py --project \"LSMNM\")",
+      "Bash(py -X utf8 fill_invoice_from_template.py --project TOTAL)",
+      "Bash(python3)",
+      "Bash(python)",
+      "Bash(python -c \"import openpyxl; print\\('ok'\\)\")",
+      "Bash(py -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(rm -f _verify_11st.xlsx _verify_nhn.xlsx _verify_coupang.xlsx)",
+      "Bash(ls _verify*.xlsx)",
+      "Bash(ls -la Invoice_Result_* *.xlsx)",
+      "Bash(python3 -c ':*)",
+      "Bash(py -c \"from openpyxl import load_workbook; wb=load_workbook\\('Invoice_Result_coupang.xlsx'\\); print\\(wb.sheetnames\\)\")",
+      "Read(//c/Program Files/LibreOffice/program/**)",
+      "Bash(py -c \"import streamlit_sortables; print\\(streamlit_sortables.__version__\\)\")",
+      "Bash(py -m pip install streamlit-sortables)",
+      "Bash(py -c \"import streamlit_sortables; help\\(streamlit_sortables.sort_items\\)\")",
+      "Bash(py -c \"import win32com.client; print\\('pywin32: OK'\\)\")",
+      "Bash(py -c \"from pathlib import Path; p=Path\\(r'C:\\\\Program Files\\\\Microsoft Office'\\); print\\(list\\(p.glob\\('root/Office*/EXCEL.EXE'\\)\\) if p.exists\\(\\) else 'No MS Office in Program Files'\\)\")",
+      "Bash(py -c \"from pathlib import Path; p=Path\\(r'C:\\\\Program Files \\(x86\\)\\\\Microsoft Office'\\); print\\(list\\(p.glob\\('root/Office*/EXCEL.EXE'\\)\\) if p.exists\\(\\) else 'No MS Office in Program Files \\(x86\\)'\\)\")",
+      "Bash(py -m pip install pywin32)",
+      "Bash(py -c \"import win32com.client; print\\('pywin32 OK'\\)\")",
+      "Bash(rm -f _dogtra.pdf _coupang.pdf _samsung-visitin.pdf)",
+      "Bash(py -c ' *)"
+    ]
+  }
+}
