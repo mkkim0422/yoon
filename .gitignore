@@ -1,5 +1,12 @@
-__pycache__/
-*.pyc
-~$*.xlsx
-*.xlsx
-.env
+# 엑셀 및 CSV (개인정보 보호)
+.csv
+.xlsx
+!template.xlsx  # 양식 파일은 올려야 한다면 !를 붙임
+
+# 파이썬 캐시
+__pycache__
+.pyc
+
+# 가상환경 및 설정
+.venv
+user_configs.json
