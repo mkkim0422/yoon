@@ -1,22 +1,6 @@
 {
-  "11st": [
-    "Dynamic Maps",
-    "Active Logical Storage",
-    "Long Term Logical Storage",
-    "Log Storage cost"
-  ],
-  "dogtra": [
-    "Static Maps",
-    "Active Logical Storage",
-    "Dynamic Maps",
-    "Geocoding",
-    "Log Storage cost",
-    "Long Term Logical Storage",
-    "Maps SDK"
-  ],
   "coupang": [
     "Dynamic Maps",
-    "Directions",
     "Geocoding",
     "Autocomplete - Per Request",
     "Autocomplete without Places Details - Per Session",
@@ -25,11 +9,153 @@
     "Basic Data",
     "Contact Data",
     "Atmosphere Data",
+    "Places - Text Search",
+    "Find Place"
+  ],
+  "dogtra": [
+    "Dynamic Maps",
+    "Maps SDK",
+    "Static Maps",
+    "Geocoding"
+  ],
+  "verygoodtour": [
+    "Dynamic Maps",
+    "Dynamic Street View",
+    "Static Maps",
+    "Directions",
     "Places - Nearby Search",
-    "Find Place",
+    "Places - Text Search",
+    "Places Details",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places Photo",
+    "Geocoding"
+  ],
+  "hanatour": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Directions",
+    "Autocomplete - Per Request",
+    "Autocomplete Requests",
+    "Autocomplete without Places Details - Per Session",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places - Text Search",
+    "Places API Nearby Search Enterprise",
+    "Places API Nearby Search Pro",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Photos",
+    "Places API Place Details Pro",
+    "Places API Text Search Enterprise",
+    "Places Details",
+    "Places Photo",
+    "Geocoding",
+    "Queries",
+    "Basic Data",
     "Autocomplete (included with Places Details) - Per Session",
     "Maps SDK",
+    "Places API Place Details Essentials (IDs Only)",
+    "Places Details - ID Refresh"
+  ],
+  "amorepacific": [
+    "Dynamic Maps",
+    "Basic Data",
+    "Places Details",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Geocoding",
+    "Autocomplete (included with Places Details) - Per Session"
+  ],
+  "Bespinglobal-Myrealtrip": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Autocomplete - Per Request",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Places Details",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Geocoding"
+  ],
+  "Bespinglobal-Socar": [
+    "Dynamic Maps"
+  ],
+  "BespinGlobal-TeamO2": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Autocomplete - Per Request",
+    "Places Details",
+    "Basic Data",
+    "Geocoding"
+  ],
+  "Ground K": [
+    "Dynamic Maps",
+    "Directions",
+    "Directions Advanced",
+    "Autocomplete - Per Request",
+    "Query Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Places Details",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
     "Places - Text Search",
-    "Static Maps"
+    "Time Zone",
+    "Geocoding",
+    "Autocomplete (included with Places Details) - Per Session"
+  ],
+  "hankookn": [
+    "Dynamic Maps",
+    "Autocomplete - Per Request",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places Details",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Geocoding",
+    "Long Term Logical Storage",
+    "Long Term Logical Storage (asia-northeast3)",
+    "Active Logical Storage",
+    "Active Logical Storage (asia-northeast3)",
+    "Streaming Insert",
+    "Streaming Insert (asia-northeast3)"
+  ],
+  "hyundai-autolink": [
+    "Geocoding",
+    "Dynamic Maps",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places - Nearby Search",
+    "Maps SDK"
+  ],
+  "hyundaicard-universe": [
+    "Dynamic Maps"
+  ],
+  "jch": [
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Places Details",
+    "Maps SDK",
+    "Geocoding"
+  ],
+  "samsung-visitin": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Places Details",
+    "Atmosphere Data",
+    "Basic Data",
+    "Contact Data",
+    "Query Autocomplete - Per Request",
+    "Geocoding"
+  ],
+  "SoftEN Corp.": [
+    "Dynamic Maps",
+    "Geocoding"
   ]
 }

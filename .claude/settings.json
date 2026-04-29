@@ -29,7 +29,23 @@
       "Bash(py -m pip install pywin32)",
       "Bash(py -c \"import win32com.client; print\\('pywin32 OK'\\)\")",
       "Bash(rm -f _dogtra.pdf _coupang.pdf _samsung-visitin.pdf)",
-      "Bash(py -c ' *)"
+      "Bash(py -c ' *)",
+      "Bash(py -c \"import streamlit_sortables; import os; print\\(os.path.dirname\\(streamlit_sortables.__file__\\)\\)\")",
+      "Bash(py -c \"import ast; [ast.parse\\(open\\(f,encoding='utf-8'\\).read\\(\\)\\) for f in ['billing/loader.py','invoice_generator.py','webapp.py']]; print\\('OK'\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(py invoice_generator.py billing.csv -c coupang -m 2026-02 -e 1430.08 -o Invoice_Result_coupang_FIXED.xlsx)",
+      "Bash(py -c \"import ast; ast.parse\\(open\\('webapp.py',encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(py -c \"import ast,pathlib; ast.parse\\(pathlib.Path\\('webapp.py'\\).read_text\\(encoding='utf-8'\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(py -X utf8 -c ' *)",
+      "Bash(python -c \"from invoice_generator import generate_formatted_invoice, _write_invoice_sheet, _safe_sheet_title; print\\('import OK'\\); print\\('safe:', _safe_sheet_title\\('hanatour-BTMS-project: test/2026', used=[]\\)\\)\")",
+      "Bash(python -c \"from invoice_generator import generate_formatted_invoice, _write_invoice_sheet, _safe_sheet_title; print\\('import OK'\\); print\\('safe:', _safe_sheet_title\\('hanatour-BTMS-project', used=[]\\)\\)\")",
+      "Bash(python -u -c ' *)",
+      "Bash(python -u test_check.py)",
+      "Bash(python -u -X utf8 -c \"import invoice_generator; print\\('OK'\\)\")",
+      "Bash(python _quick_test.py)",
+      "Bash(del _quick_test.py)",
+      "Bash(python -u _inspect_pl.py)",
+      "Bash(py _inspect_pl.py)"
     ]
   }
 }

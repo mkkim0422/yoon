@@ -1,0 +1,34 @@
+{
+  "hanatour": {
+    "amount": 0.0,
+    "currency": "KRW"
+  },
+  "amorepacific": {
+    "amount": 0.0,
+    "currency": "KRW"
+  },
+  "Bespinglobal-Socar": {
+    "amount": 0.0,
+    "currency": "KRW"
+  },
+  "BespinGlobal-TeamO2": {
+    "amount": 0.0,
+    "currency": "KRW"
+  },
+  "hyundai-autolink": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "hyundaicard-universe": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "jch": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "SoftEN Corp.": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "hanatour": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "Bespinglobal-Myrealtrip": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-02-28"
+  },
+  "Bespinglobal-Socar": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2025-12-31"
+  },
+  "BespinGlobal-TeamO2": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "Beyless - Monitoring System": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "coupang": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2025-12-31"
+  },
+  "Ground K": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "hankookn": {
+    "bank": "하나은행",
+    "phrase": "최종 매매환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "Hecto Innovation": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "hyundai-autolink": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "hyundaicard-universe": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "jch": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-02-27"
+  },
+  "amorepacific": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2025-12-31"
+  }
+}

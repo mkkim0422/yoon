@@ -178,11 +178,18 @@ def write_project_sheet(
     line_items: list | None = None,   # noqa: ARG001  (호환용 — 더 이상 사용하지 않음)
     invoice_sku_rows: list[dict] | None = None,
     invoice_rate_row: int | None = None,
+    per_proj_invoice_meta: dict[str, dict] | None = None,
     currency: str = "USD",
+    min_charge_amount: float = 500_000,
+    min_charge_currency: str = "KRW",
 ) -> None:
     """Invoice 시트 내 각 SKU의 header/subtotal 행을 수식으로 참조한다.
-    invoice_sku_rows: [{"sku_name","header_row","subtotal_row"}, ...] — Invoice!B/C/I 참조용.
-    invoice_rate_row: Invoice 시트의 환율 행 번호 (I{rate_row}).
+    invoice_sku_rows: [{"sku_name","header_row","subtotal_row"}, ...] — Invoice!B/C/I 참조용
+                      (account 모드).
+    invoice_rate_row: Invoice 시트의 환율 행 번호 (I{rate_row}) — account 모드.
+    per_proj_invoice_meta: per_project 모드에서만 사용.
+        {proj_name: {"sheet_title", "sku_rows": [...], "rate_row": int|None}} 구조로
+        각 프로젝트 블록이 자기 Invoice 시트를 수식 참조할 수 있도록 한다.
     currency: 'USD' (기본) 또는 'KRW'. KRW 모드에선 환율 메타 행 생략, 모든
               금액 ₩ 표기, 프로젝트별 toal($) 행 숨김, 총 합계는 직접 SUM.
     """
@@ -192,11 +199,11 @@ def write_project_sheet(
     ws.sheet_view.showGridLines = False
 
     # ── API 목록: Invoice 시트 순서 그대로 (Tax/VAT 제외는 invoice쪽에서 이미 완료) ─
-    _TAX_KEYWORDS = ("세금", "tax", "vat")
+    # 세금/VAT 판별 — 한글은 substring, 영문은 단어 경계 (Elevation 의 'vat' 오탐 방지).
+    _TAX_RE = re.compile(r"세금|\btax\b|\bvat\b", re.IGNORECASE)
 
     def _is_tax_sku(name: str) -> bool:
-        n = (name or "").lower()
-        return any(kw in n for kw in _TAX_KEYWORDS)
+        return bool(_TAX_RE.search(name or ""))
 
     api_list: list[str] = []
     sku_row_map: dict[str, dict] = {}
@@ -212,13 +219,33 @@ def write_project_sheet(
                 "subtotal_row": s["subtotal_row"],
             }
     else:
-        # invoice_sku_rows 미전달 → proj_results 기반 fallback (수식 사용 불가)
-        seen = set()
+        # invoice_sku_rows 미전달(per_project 모드) → proj_results 기반 fallback.
+        # 어느 프로젝트든 **실제 사용량(usage) > 0** 또는 **청구 금액(subtotal_usd) > 0**
+        # 인 SKU 는 컬럼으로 노출. free cap 내에서 전액 소진되어 amount=0 이어도
+        # usage 가 있으면 "사용 기록" 차원에서 표시한다.
+        _total_sub: dict[str, Decimal] = {}
+        _has_usage: dict[str, bool] = {}
         for pr in proj_results:
-            for sku_name in pr["skus"].keys():
-                if sku_name not in seen and not _is_tax_sku(sku_name):
-                    seen.add(sku_name)
-                    api_list.append(sku_name)
+            for sku_name, sd in pr["skus"].items():
+                if _is_tax_sku(sku_name):
+                    continue
+                _sub = (sd or {}).get("subtotal_usd") or Decimal("0")
+                if not isinstance(_sub, Decimal):
+                    try:
+                        _sub = Decimal(str(_sub))
+                    except Exception:
+                        _sub = Decimal("0")
+                _total_sub[sku_name] = _total_sub.get(sku_name, Decimal("0")) + _sub
+                try:
+                    _u = int((sd or {}).get("usage") or 0)
+                except (TypeError, ValueError):
+                    _u = 0
+                if _u > 0:
+                    _has_usage[sku_name] = True
+        api_list = [
+            nm for nm, s in _total_sub.items()
+            if s > 0 or _has_usage.get(nm)
+        ]
         order_map = {name: i for i, name in enumerate(PREFERRED_API_ORDER)}
         api_list.sort(key=lambda n: order_map.get(n, len(PREFERRED_API_ORDER)))
 
@@ -383,6 +410,7 @@ def write_project_sheet(
     # ══════════════════════════════════════════════════════════════════════════
     cur       = 10
     project_usd_cells: list[str] = []   # 각 프로젝트의 toal($) 셀 참조 — grand total 수식용
+    project_krw_cells: list[str] = []   # 각 프로젝트의 toal(₩) 셀 참조 (USD 모드) — 합산용
 
     hdr_fill  = _fill(C_HEADER)
     data_fill = _fill(C_WHITE)
@@ -396,6 +424,10 @@ def write_project_sheet(
 
     proj_results = sorted(proj_results, key=_proj_sort_key)
 
+    def _quote_sheet(name: str) -> str:
+        # Excel 수식 시트 참조: 시트명에 ' 가 있으면 '' 로 이스케이프 후 홑따옴표로 감쌈.
+        return f"'{(name or '').replace(chr(39), chr(39)*2)}'"
+
     for pr in proj_results:
         r_name   = cur       # 행1: 서비스명 (녹색)
         r_usage  = cur + 1   # 행2: 사용량   (녹색)
@@ -405,6 +437,24 @@ def write_project_sheet(
         r_krw    = cur + 5   # 행6: toal(₩)
 
         proj_amount_cells: list[str] = []   # 이 프로젝트의 amount 셀 (E, H, K, ...)
+
+        # ── per_project 모드: 이 프로젝트 전용 Invoice 시트 메타 조회 ─────────
+        #   있으면 해당 시트의 sku_rows 로 로컬 맵 구성하고 수식 참조용 sheet prefix 준비.
+        #   없으면 account 모드 기본값(전역 sku_row_map + "Invoice" 시트명) 사용.
+        _pp_meta = (per_proj_invoice_meta or {}).get(pr.get("proj_name"))
+        if _pp_meta:
+            _local_sku_row_map: dict[str, dict] = {}
+            for _s in (_pp_meta.get("sku_rows") or []):
+                _nm = _s.get("sku_name")
+                if _nm and not _is_tax_sku(_nm):
+                    _local_sku_row_map[_nm] = {
+                        "header_row":   _s["header_row"],
+                        "subtotal_row": _s["subtotal_row"],
+                    }
+            _sheet_ref = _quote_sheet(_pp_meta.get("sheet_title") or "Invoice")
+        else:
+            _local_sku_row_map = sku_row_map
+            _sheet_ref = "Invoice"
 
         for r, h in zip(
             [r_name, r_usage, r_labels, r_vals, r_usd, r_krw],
@@ -436,7 +486,22 @@ def write_project_sheet(
         cell.border    = _BORDER
 
         # ── API별 4행 격자 (3컬럼 구조) ──────────────────────────────────────
-        for k, api_name in enumerate(api_list):
+        # 이 프로젝트에서 실제 사용/청구한 API 만 왼쪽부터 순서대로 배치한다.
+        # (공통 api_list 그대로 쓰면 미사용 API 자리가 빈 칸으로 남아 레이아웃이
+        #  비고 toal 값 열이 허전하게 외떨어져 보인다.)
+        used_apis: list[str] = []
+        for _nm in api_list:
+            _sd_ck = pr["skus"].get(_nm, {})
+            try:
+                _u_ck = int(_sd_ck.get("usage") or 0)
+            except (TypeError, ValueError):
+                _u_ck = 0
+            _sub_ck = _sd_ck.get("subtotal_usd") or Decimal("0")
+            _krw_ck = _sd_ck.get("final_krw")    or Decimal("0")
+            if _u_ck > 0 or _sub_ck > 0 or _krw_ck > 0:
+                used_apis.append(_nm)
+
+        for k, api_name in enumerate(used_apis):
             sd = pr["skus"].get(
                 api_name,
                 {"usage": 0, "subtotal_usd": Decimal("0"), "final_krw": Decimal("0")},
@@ -450,8 +515,8 @@ def write_project_sheet(
             lc_letter = get_column_letter(lc)
             rc_letter = get_column_letter(rc)
 
-            # Invoice 참조 행 (수식용)
-            inv_rows = sku_row_map.get(api_name, {})
+            # Invoice 참조 행 (수식용) — per_project 모드면 로컬 맵 사용.
+            inv_rows = _local_sku_row_map.get(api_name, {})
             inv_header   = inv_rows.get("header_row")
             inv_subtotal = inv_rows.get("subtotal_row")
 
@@ -487,7 +552,7 @@ def write_project_sheet(
             cell.font          = _font(C_TEXT, size=8)
             cell.alignment     = _align("right", "center")
             cell.border        = _BORDER
-            cell.number_format = '#,##0;;"-"'
+            cell.number_format = '#,##0;;""'
 
             # 행3: 라벨 (C:D 병합=monthly unit price($), E=amount, WHITE)
             _pre_merge_style(ws, r_labels, lc, r_labels, mc,
@@ -520,16 +585,48 @@ def write_project_sheet(
             except Exception:
                 pass
 
-            # 단가 셀: Invoice!$I${subtotal}/Invoice!$C${header} — 가중 평균 단가
+            # 단가·amount 계산 경로:
+            #   (A) Invoice 셀 참조 가능 (account 모드) → 단순 분수 수식 체인 유지.
+            #       "단가 = Invoice I(소계) / Invoice C(Usage)". 무료로 전액
+            #       소진된 경우(usage>0, subtotal=0)는 결과가 자연스레 0 이 되어
+            #       별도 가드 불필요. usage=0 인 edge case(subtotal>0, usage=0
+            #       같은 비정상 데이터) 만 IF 로 DIV/0 방지.
+            #   (B) per_project 모드 → Invoice 시트가 여러 개라 참조 불가.
+            #       subtotal(=waterfall 결과, Decimal) 을 amount 에 **직접** 기록해
+            #       float round-trip 없이 정밀도 유지. 단가는 subtotal/usage.
+            _amount_value: object
             if inv_header is not None and inv_subtotal is not None:
-                unit_price_val: object = (
-                    f"=IF(Invoice!$C${inv_header}>0,"
-                    f"Invoice!$I${inv_subtotal}/Invoice!$C${inv_header},0)"
-                )
+                try:
+                    _u_inv = int(usage or 0)
+                except (TypeError, ValueError):
+                    _u_inv = 0
+                if _u_inv > 0:
+                    unit_price_val: object = (
+                        f"={_sheet_ref}!$I${inv_subtotal}/{_sheet_ref}!$C${inv_header}"
+                    )
+                else:
+                    # 사용량 0 → DIV/0 방지용 가드
+                    unit_price_val = (
+                        f"=IF({_sheet_ref}!$C${inv_header}>0,"
+                        f"{_sheet_ref}!$I${inv_subtotal}/{_sheet_ref}!$C${inv_header},0)"
+                    )
+                _amount_value = None   # 아래 수식 경로에서 설정
             else:
-                unit_price_val = 0
+                _sub_dec   = sd.get("subtotal_usd", Decimal("0"))
+                _final_dec = sd.get("final_krw",    Decimal("0"))
+                _u         = int(usage or 0)
+                if _u > 0:
+                    if is_krw:
+                        unit_price_val = float(_final_dec) / _u
+                        _amount_value  = float(_final_dec)
+                    else:
+                        unit_price_val = float(_sub_dec) / _u
+                        _amount_value  = float(_sub_dec)
+                else:
+                    unit_price_val = 0
+                    _amount_value  = 0
             # 통화별 단가 포맷: USD는 소수 3자리, KRW는 정수(원 단위)
-            _up_fmt = '"\u20a9"#,##0;;"-"' if is_krw else '#,##0.000;;"-"'
+            _up_fmt = '"\u20a9"#,##0;-"₩"#,##0;"₩"0' if is_krw else '#,##0.000;-#,##0.000;0'
             cell = ws.cell(row=r_vals, column=lc, value=unit_price_val)
             cell.fill          = data_fill
             cell.font          = _font(C_TEXT, size=8)
@@ -542,9 +639,11 @@ def write_project_sheet(
             unit_price_ref = f"{lc_letter}{r_vals}"
             amount_ref     = f"{rc_letter}{r_vals}"
             proj_amount_cells.append(amount_ref)
-            _amt_fmt = '"\u20a9"#,##0;;"-"' if is_krw else '#,##0;;"-"'
+            _amt_fmt = '"\u20a9"#,##0;-"₩"#,##0;"₩"0' if is_krw else '#,##0;-#,##0;0'
+            if _amount_value is None:
+                _amount_value = f"={usage_ref}*{unit_price_ref}"
             _set(ws, r_vals, rc,
-                 value=f"={usage_ref}*{unit_price_ref}",
+                 value=_amount_value,
                  fill=data_fill,
                  font=_font(C_TEXT, size=8),
                  alignment=_align("right", "center"),
@@ -566,15 +665,21 @@ def write_project_sheet(
         cell.alignment = _align("right", "center")
         cell.border    = _BORDER
 
-        # total = ROUND(SUM(amount 셀 전부), 0)
+        # total = ROUND(SUM(amount 셀 전부), N)
+        # — USD 모드: 2 자리 소수 유지 ($316.06 같이 실수 값 보존).
+        #   정수(0)로 반올림하면 프로젝트별로 최대 $0.49 오차가 생기고,
+        #   그 정수 합에 환율을 곱하면 프로젝트 수만큼 ₩1,500 단위 오차가
+        #   청구 대상 금액에 누적된다.
+        # — KRW 모드: 1원 단위 정수.
         usd_col_letter = get_column_letter(PROJ_COL + 3)
         usd_cell_ref   = f"{usd_col_letter}{r_usd}"
         project_usd_cells.append(usd_cell_ref)
         if proj_amount_cells:
-            usd_formula = f"=ROUND(SUM({','.join(proj_amount_cells)}),0)"
+            _rd = 0 if is_krw else 2
+            usd_formula = f"=ROUND(SUM({','.join(proj_amount_cells)}),{_rd})"
         else:
             usd_formula = 0
-        _tot_fmt = '"\u20a9"#,##0' if is_krw else '"$"#,##0'
+        _tot_fmt = '"\u20a9"#,##0' if is_krw else '"$"#,##0.00'
         _set(ws, r_usd, PROJ_COL + 3,
              value=usd_formula,
              fill=tot_fill,
@@ -603,6 +708,8 @@ def write_project_sheet(
             cell.border    = _BORDER
 
             # toal(₩) = ROUND(toal($) × 환율, 0) — $C$8 참조
+            _krw_col_letter = get_column_letter(PROJ_COL + 3)
+            project_krw_cells.append(f"{_krw_col_letter}{r_krw}")
             _set(ws, r_krw, PROJ_COL + 3,
                  value=f"=ROUND({usd_cell_ref}*{RATE_CELL},0)",
                  fill=tot_fill,
@@ -629,20 +736,78 @@ def write_project_sheet(
     # ══════════════════════════════════════════════════════════════════════════
     # 최하단 합계 행 (green #C5E0B3, B:E 범위만)
     # ══════════════════════════════════════════════════════════════════════════
+    # 월 최소 사용비용 (계정별 설정). USD 로 설정돼 있으면 환율로 KRW 환산.
+    # amount ≤ 0 이면 룰 자체를 적용하지 않는다(면제 계약 계정용).
+    try:
+        _mc_amt = float(min_charge_amount)
+    except (TypeError, ValueError):
+        _mc_amt = 0.0
+    if _mc_amt <= 0:
+        _MIN_CHARGE_KRW = 0
+    elif min_charge_currency == "USD":
+        _MIN_CHARGE_KRW = int(round(_mc_amt * float(exchange_rate)))
+    else:
+        _MIN_CHARGE_KRW = int(round(_mc_amt))
+
+    try:
+        _proj_usd_total = sum(
+            float(pr.get("total_usd") or 0) for pr in proj_results
+        )
+    except Exception:
+        _proj_usd_total = 0.0
+    if is_krw:
+        _predicted_krw = round(_proj_usd_total)
+    else:
+        _predicted_krw = round(_proj_usd_total * float(exchange_rate))
+    _min_charge_applied = (
+        _MIN_CHARGE_KRW > 0 and 0 < _predicted_krw < _MIN_CHARGE_KRW
+    )
+
     rh(cur, 5)
     cur += 1
 
-    r_total      = cur
-    r_vat_notice = cur + 1
-
+    if _min_charge_applied:
+        r_min_charge = cur
+        r_total      = cur + 1
+        r_vat_notice = cur + 2
+        rh(r_min_charge, 22)
+    else:
+        r_min_charge = None
+        r_total      = cur
+        r_vat_notice = cur + 1
     rh(r_total,      22)
     rh(r_vat_notice, 14)
 
     # A열 및 F열 이후 전체 흰색으로 초기화 (주황색 제거)
-    for r in (r_total, r_vat_notice):
+    _reset_rows = [r_total, r_vat_notice]
+    if r_min_charge is not None:
+        _reset_rows.append(r_min_charge)
+    for r in _reset_rows:
         for c in range(1, MAX_COL + 2):
             ws.cell(row=r, column=c).fill   = _fill(C_WHITE)
             ws.cell(row=r, column=c).border = _NO_BORDER
+
+    # ── 월최소사용비용(KRW) 행 (조건부) ──
+    if r_min_charge is not None:
+        _pre_merge_style(ws, r_min_charge, PROJ_COL, r_min_charge, PROJ_COL + 2,
+                         fill=tot_fill, border=_BORDER)
+        try:
+            ws.merge_cells(start_row=r_min_charge, start_column=PROJ_COL,
+                           end_row=r_min_charge,   end_column=PROJ_COL + 2)
+        except Exception:
+            pass
+        cell = ws.cell(row=r_min_charge, column=PROJ_COL, value="월최소사용비용(KRW)")
+        cell.fill      = tot_fill
+        cell.font      = Font(color=C_TEXT, bold=True, size=10, name="맑은 고딕")
+        cell.alignment = _align("center", "center")
+        cell.border    = _BORDER
+        _set(ws, r_min_charge, PROJ_COL + 3,
+             value=_MIN_CHARGE_KRW,
+             fill=tot_fill,
+             font=Font(color=C_TEXT, bold=True, size=10, name="맑은 고딕"),
+             alignment=_align("right", "center"),
+             border=_BORDER,
+             number_format="\u20a9#,##0")
 
     # B:D 병합 → "청구 대상 금액" 라벨 (#C5E0B3, 검정 굵게)
     _pre_merge_style(ws, r_total, PROJ_COL, r_total, PROJ_COL + 2,
@@ -658,15 +823,19 @@ def write_project_sheet(
     cell.alignment = _align("center", "center")
     cell.border    = _BORDER
 
-    # E열 → 최종 원화 합계
-    #   USD 모드: ROUND(SUM(프로젝트별 toal$) × 환율, 0)
-    #   KRW 모드: ROUND(SUM(프로젝트별 toal₩), 0)  — 환율 곱 없음
-    if project_usd_cells:
-        _sum_expr = ",".join(project_usd_cells)
-        if is_krw:
-            grand_krw_formula = f"=ROUND(SUM({_sum_expr}),0)"
-        else:
-            grand_krw_formula = f"=ROUND(SUM({_sum_expr})*{RATE_CELL},0)"
+    # E열 → 청구 대상 금액
+    #   - 최소사용비용 적용: 고정 ₩500,000
+    #   - 그 외:
+    #       USD 모드: SUM(프로젝트별 toal₩)  — 각 프로젝트 KRW 는 이미
+    #         ROUND(usd × rate, 0) 이므로 단순 합산. (Invoice 시트 합과
+    #         동일 반올림 경로 유지 — per-sheet 반올림 후 합산)
+    #       KRW 모드: ROUND(SUM(프로젝트별 toal₩), 0) — 환율 곱 없음
+    if _min_charge_applied:
+        grand_krw_formula = _MIN_CHARGE_KRW
+    elif is_krw and project_usd_cells:
+        grand_krw_formula = f"=ROUND(SUM({','.join(project_usd_cells)}),0)"
+    elif project_krw_cells:
+        grand_krw_formula = f"=SUM({','.join(project_krw_cells)})"
     else:
         grand_krw_formula = 0
     _set(ws, r_total, PROJ_COL + 3,
