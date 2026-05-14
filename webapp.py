@@ -29,6 +29,7 @@ from billing.loader import (
 )
 from billing.preprocessor import extract_company_names, preprocess_usage_file
 from invoice_generator import generate_formatted_invoice
+import github_storage
 
 # ── 경로 상수 ─────────────────────────────────────────────────────────────────
 MASTER_CSV             = Path(__file__).parent / "billing" / "master_data.csv"
@@ -42,6 +43,14 @@ SAVED_RATE_LABEL_FILE   = Path(__file__).parent / "billing" / "saved_rate_label.
 SAVED_INCLUDE_PROJECT_FILE = Path(__file__).parent / "billing" / "saved_include_project.json"
 SAVED_SUBTOTAL_ROUND_FILE  = Path(__file__).parent / "billing" / "saved_subtotal_round.json"
 SAVED_HIDDEN_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_hidden_skus.json"
+
+# GitHub 원격 경로 (Streamlit 휴면 후에도 단가표가 유지되도록 repo 에 백업/복원).
+# `.streamlit/secrets.toml` 의 [github] 설정이 없으면 조용히 no-op.
+_PRICE_LIST_REMOTES = {
+    PRICE_LIST_SAVED_USD: "billing/saved_price_list_usd.xlsx",
+    PRICE_LIST_SAVED_KRW: "billing/saved_price_list_krw.xlsx",
+    PRICE_LIST_SAVED:     "billing/saved_price_list.xlsx",
+}
 
 # 계정별 과금 모드 — "account"(회사 통합 waterfall, 기본) / "per_project"(프로젝트 독립)
 BILLING_MODE_ACCOUNT     = "account"
@@ -1033,6 +1042,13 @@ components.html("""
 if True:
 
     # ── ① 단가표(GMP Price List) 첨부 — USD/KRW 통화별 분리 ───────────────
+    # Streamlit Community Cloud 휴면 wake 시 컨테이너 로컬 디스크가 초기화되므로,
+    # 세션 시작 시 GitHub repo 에서 단가표를 복원한다(설정 있을 때만).
+    if github_storage.is_configured() and "_price_list_pulled" not in st.session_state:
+        for _local, _remote in _PRICE_LIST_REMOTES.items():
+            github_storage.pull(_remote, _local)
+        st.session_state["_price_list_pulled"] = True
+
     # 레거시(saved_price_list.xlsx) 가 있으면 감지 통화에 맞춰 신규 파일로 자동
     # 이관. 두 신규 파일 중 하나라도 이미 있으면 이관 스킵.
     if PRICE_LIST_SAVED.exists() and not (
@@ -1051,12 +1067,21 @@ if True:
             pass
 
     def _persist_price_list(uploaded, save_path, session_tag: str) -> None:
-        """업로드된 단가표를 지정 경로에 저장하고 한 번만 flash 메시지."""
+        """업로드된 단가표를 지정 경로에 저장하고 한 번만 flash 메시지.
+
+        설정이 되어 있으면 GitHub repo 에도 함께 커밋해 휴면 wake 후에도 단가표
+        가 유지되도록 한다.
+        """
         _key = f"{uploaded.name}_{uploaded.size}"
         if st.session_state.get(f"_saved_price_key_{session_tag}") != _key:
             uploaded.seek(0)
             save_path.parent.mkdir(parents=True, exist_ok=True)
             save_path.write_bytes(uploaded.read())
+            remote = _PRICE_LIST_REMOTES.get(save_path)
+            if remote and github_storage.is_configured():
+                github_storage.push(
+                    save_path, remote, f"단가표 업데이트: {uploaded.name}"
+                )
             st.session_state[f"_saved_price_key_{session_tag}"] = _key
             st.session_state[f"_price_flash_{session_tag}"] = uploaded.name
             st.rerun()
@@ -1080,6 +1105,11 @@ if True:
                 if st.button("🗑", key="del_price_list_usd",
                              help="저장된 달러 단가표 삭제"):
                     PRICE_LIST_SAVED_USD.unlink(missing_ok=True)
+                    if github_storage.is_configured():
+                        github_storage.delete(
+                            _PRICE_LIST_REMOTES[PRICE_LIST_SAVED_USD],
+                            "달러 단가표 삭제",
+                        )
                     st.session_state.pop("_saved_price_key_usd", None)
                     st.rerun()
         if _f_usd := st.session_state.pop("_price_flash_usd", None):
@@ -1102,6 +1132,11 @@ if True:
                 if st.button("🗑", key="del_price_list_krw",
                              help="저장된 원화 단가표 삭제"):
                     PRICE_LIST_SAVED_KRW.unlink(missing_ok=True)
+                    if github_storage.is_configured():
+                        github_storage.delete(
+                            _PRICE_LIST_REMOTES[PRICE_LIST_SAVED_KRW],
+                            "원화 단가표 삭제",
+                        )
                     st.session_state.pop("_saved_price_key_krw", None)
                     st.rerun()
         if _f_krw := st.session_state.pop("_price_flash_krw", None):
@@ -2250,10 +2285,6 @@ if True:
                     "SKU 마스터의 SKU ID가 파일의 데이터와 일치하는지 확인하세요."
                 )
             else:
-                # 성공 배너 + balloons
-                if run_button:
-                    st.balloons()
-
                 st.markdown(f"""
                 <div style="
                     background:linear-gradient(135deg,#a5d15a,#7dbb26);
