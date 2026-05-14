@@ -450,6 +450,13 @@ div[data-testid="stTextInput"] input:not(:disabled) {
     background-color: #ffffff !important;
 }
 
+/* 환율 인풋: 달러 모드에서 비어있으면 빨간 테두리 (입력하면 자동 해제). */
+.st-key-_rate_raw_input div[data-baseweb="input"]:has(input:not(:disabled):placeholder-shown),
+.st-key-_rate_raw_input div[data-baseweb="base-input"]:has(input:not(:disabled):placeholder-shown) {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 1px #ef4444 !important;
+}
+
 /* ── 버튼 ── */
 button[kind="primary"] {
     background: linear-gradient(135deg, #00788a 0%, #00596a 100%) !important;
@@ -946,6 +953,56 @@ components.html(
         window.parent.document.body, { subtree: true, childList: true }
       );
       patchRate();
+    })();
+    </script>
+    """,
+    height=0,
+)
+
+# ── 드롭다운(selectbox) 키보드 네비게이션 스크롤 패치 ────────────────────────
+# BaseWeb 의 listbox 는 키보드 방향키로 하이라이트가 이동해도 화면 밖으로
+# 나가면 자동 스크롤이 안 된다. listbox 가 열릴 때마다 하이라이트 변경을
+# 관찰하고 scrollIntoView 로 시야 안으로 끌어온다.
+components.html(
+    """
+    <script>
+    (function(){
+      function highlightedItem(listbox){
+        return listbox.querySelector('li[aria-selected="true"]')
+            || listbox.querySelector('[role="option"][aria-selected="true"]')
+            || listbox.querySelector('[data-highlighted="true"]')
+            || listbox.querySelector('li.active');
+      }
+      function attachScroll(listbox){
+        if (listbox._kbdScrollPatched) return;
+        listbox._kbdScrollPatched = true;
+        var scroll = function(){
+          var item = highlightedItem(listbox);
+          if (item && typeof item.scrollIntoView === 'function') {
+            item.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }
+        };
+        var obs = new MutationObserver(scroll);
+        obs.observe(listbox, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['aria-selected', 'data-highlighted', 'class']
+        });
+        scroll();
+      }
+      function scan(){
+        try {
+          var doc = window.parent.document;
+          var listboxes = doc.querySelectorAll(
+            'ul[role="listbox"], div[role="listbox"]'
+          );
+          listboxes.forEach(attachScroll);
+        } catch(e){}
+      }
+      new MutationObserver(scan).observe(
+        window.parent.document.body, { subtree: true, childList: true }
+      );
+      scan();
     })();
     </script>
     """,
@@ -1729,19 +1786,31 @@ if True:
                 # 환율: 달러 모드에서만 입력 가능 (원화 모드에선 사용 안 함)
                 # disabled=True 일 때만 회색 배경 — 달러 모드 활성 상태는 전역
                 # CSS 로 흰 배경 처리(인풋: not(:disabled)).
-                # 테스트 모드: 최초 렌더 시 기본값 프리필 (사용자가 이후 지울 수 있음).
-                if (_TEST_DEFAULTS
-                        and "_rate_raw_input" not in st.session_state
-                        and not st.session_state.get("_rate_raw")):
-                    st.session_state["_rate_raw_input"] = _TEST_DEFAULT_RATE
+                # 세션 진입 시 빈 값으로 시작 (이전 입력값 자동 복원 안 함).
                 _rate_raw = st.text_input(
                     "환율 (USD → KRW)",
-                    value=st.session_state.get("_rate_raw", ""),
+                    value="",
                     max_chars=7,
                     placeholder="예: 1427.87" if currency == "USD" else "원화 모드 — 입력 불필요",
                     key="_rate_raw_input",
                     disabled=(currency == "KRW"),
                 )
+                # 정산 시작 시 환율 미입력 에러 메시지가 채워질 자리.
+                _rate_error_ph = st.empty()
+
+                # 사용자가 입력하면 invalid flash 자동 해제.
+                if _rate_raw and st.session_state.get("_rate_invalid_flash"):
+                    st.session_state.pop("_rate_invalid_flash", None)
+
+                # 이전 rerun 에서 flash 가 켜진 상태면 메시지 유지(타이핑 전까지).
+                if currency == "USD" and st.session_state.get("_rate_invalid_flash"):
+                    _rate_error_ph.markdown(
+                        '<div style="color:#ef4444; font-size:0.85rem; '
+                        'margin-top:-10px; padding-left:4px;">'
+                        '환율을 입력해 주세요</div>',
+                        unsafe_allow_html=True,
+                    )
+
                 if currency == "KRW":
                     exchange_rate = 1.0   # placeholder — 원화 모드에선 실제 미사용
                 else:
@@ -1912,16 +1981,45 @@ if True:
             _missing_msgs: list[str] = []
             if not billing_month:
                 _missing_msgs.append("CSV 파일을 먼저 업로드해주세요.")
-            # 환율은 달러 모드에서만 필수 (원화 모드는 환율 미사용)
-            if currency == "USD" and (not exchange_rate or exchange_rate <= 0):
-                _missing_msgs.append("환율을 입력해 주세요")
             if not (dl_excel or dl_pdf):
                 _missing_msgs.append("다운로드 형식(엑셀 / PDF)을 하나 이상 선택해주세요.")
 
-            if _missing_msgs:
+            # 환율 미입력은 인풋 바로 아래 빨간 메시지 + 포커싱으로 처리.
+            _rate_missing = (
+                currency == "USD" and (not exchange_rate or exchange_rate <= 0)
+            )
+            if _rate_missing:
+                st.session_state["_rate_invalid_flash"] = True
+                _rate_error_ph.markdown(
+                    '<div style="color:#ef4444; font-size:0.85rem; '
+                    'margin-top:-10px; padding-left:4px;">'
+                    '환율을 입력해 주세요</div>',
+                    unsafe_allow_html=True,
+                )
+                components.html(
+                    """
+                    <script>
+                    (function(){
+                      try {
+                        var inp = window.parent.document.querySelector(
+                          '.st-key-_rate_raw_input input'
+                        );
+                        if (inp && !inp.disabled) {
+                          inp.focus();
+                          inp.scrollIntoView({behavior:'smooth', block:'center'});
+                        }
+                      } catch(e) {}
+                    })();
+                    </script>
+                    """,
+                    height=0,
+                )
+
+            if _missing_msgs or _rate_missing:
                 for _m in _missing_msgs:
                     st.toast(f"⚠ {_m}", icon="⚠️")
-                st.error(" / ".join(_missing_msgs))
+                if _missing_msgs:
+                    st.error(" / ".join(_missing_msgs))
                 run_button = False   # 아래 정산 블록 실행 차단
 
         # ── 정산 실행 ─────────────────────────────────────────────────────────
@@ -1950,18 +2048,9 @@ if True:
                     sku_master = build_sku_master_from_usage(usage_rows, price_list_file)
 
                     # CSV 에 있지만 Price List 에 없어 매칭 실패한 SKU 탐지
-                    # → 엔진이 조용히 버리지 않도록 UI 에 경고.
+                    # → 정산완료 배너 아래에서 노출하도록 결과에 함께 저장
+                    # (사용자 가시성: 처리 중 한 자리 차지하지 말고 완료 후 노출).
                     _missing_skus = detect_missing_skus(usage_rows, sku_master)
-                    if _missing_skus:
-                        _lines = "\n".join(
-                            f"• **{_nm or '(이름없음)'}** (`{_sid}`)"
-                            for _sid, _nm in _missing_skus
-                        )
-                        st.warning(
-                            f"⚠️ **CSV 에 사용량이 있지만 Price List 에서 단가를 찾지 못해 집계에서 제외된 SKU {len(_missing_skus)}건**\n\n"
-                            f"{_lines}\n\n"
-                            "→ Price List(xlsx) A열의 SKU 명과 CSV 'SKU 설명' 이 정확히 일치해야 매칭됩니다."
-                        )
 
                     _render_loading(loading_ph, 35, "🧮 Waterfall 과금 계산 중...")
                     _ex = Decimal(str(exchange_rate))
@@ -2116,8 +2205,8 @@ if True:
 
                     _render_loading(loading_ph, 55, "📄 Excel 인보이스 생성 중...")
                     _safe        = (selected_company or "전체").replace("/", "_").replace("\\", "_")
-                    _fname_xlsx  = f"정산리포트_{_safe}_{billing_month}.xlsx"
-                    _fname_pdf   = f"정산리포트_{_safe}_{billing_month}.pdf"
+                    _fname_xlsx  = f"GMP_Invoice_{_safe}.xlsx"
+                    _fname_pdf   = f"GMP_Invoice_{_safe}.pdf"
                     # sku_order 에서도 미노출 항목 제거 — Invoice 시트 순서
                     # 렌더 시 빈 섹션이 끼지 않도록 깔끔하게 정리.
                     _sku_order_out = [
@@ -2183,6 +2272,7 @@ if True:
                         "pdf_bytes":       _pdf_bytes,
                         "pdf_filename":    _fname_pdf,
                         "pdf_error":       _pdf_error,
+                        "missing_skus":    _missing_skus,
                     }
                     # 자동 다운로드용 키 — 같은 결과를 재 다운로드하지 않도록
                     st.session_state._auto_dl_key = (
@@ -2297,56 +2387,18 @@ if True:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # DataFrame 구성
-                df_result = pd.DataFrame([
-                    {
-                        "정산월":         it.billing_month,
-                        "업체(프로젝트)": it.project_name,
-                        "SKU명":          it.sku_name,
-                        "총사용량":       it.total_usage,
-                        "무료차감":       it.free_cap_applied,
-                        "청구대상":       it.billable_usage,
-                        "소계(USD)":      float(it.subtotal_usd),
-                        "최종(KRW)":      float(it.final_krw),
-                    }
-                    for it in line_items
-                ])
-
-                # KPI 카드
-                st.divider()
-                st.markdown("#### 📊 정산 요약")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("프로젝트 수",  f"{df_result['업체(프로젝트)'].nunique():,} 개")
-                c2.metric("유료 청구 건", f"{(df_result['청구대상'] > 0).sum():,} 건")
-                c3.metric("합계 (USD)",   f"$ {df_result['소계(USD)'].sum():,.2f}")
-                c4.metric("합계 (KRW)",   f"₩ {df_result['최종(KRW)'].sum():,.0f}")
-
-                st.divider()
-
-                # 프로젝트별 합계
-                st.markdown("#### 🏢 프로젝트별 합계")
-                df_proj = (
-                    df_result
-                    .groupby("업체(프로젝트)", as_index=False)
-                    .agg(소계_USD=("소계(USD)", "sum"), 최종_KRW=("최종(KRW)", "sum"))
-                    .sort_values("최종_KRW", ascending=False)
-                    .rename(columns={"소계_USD": "소계(USD)", "최종_KRW": "최종(KRW)"})
-                    [["소계(USD)", "최종(KRW)"]]
-                )
-                df_proj["소계(USD)"] = df_proj["소계(USD)"].map("$ {:,.4f}".format)
-                df_proj["최종(KRW)"] = df_proj["최종(KRW)"].map("₩ {:,.0f}".format)
-                st.dataframe(df_proj, width='stretch', hide_index=True)
-
-                st.divider()
-
-                # SKU별 세부 내역
-                st.markdown("#### 📋 SKU별 세부 내역")
-                df_disp = df_result[["SKU명", "총사용량", "무료차감", "청구대상", "소계(USD)", "최종(KRW)"]].copy()
-                df_disp["소계(USD)"] = df_disp["소계(USD)"].map("$ {:,.4f}".format)
-                df_disp["최종(KRW)"] = df_disp["최종(KRW)"].map("₩ {:,.0f}".format)
-                for col in ("총사용량", "무료차감", "청구대상"):
-                    df_disp[col] = df_disp[col].map("{:,}".format)
-                st.dataframe(df_disp, width='stretch', hide_index=True)
+                # 정산완료 배너 직하단에 누락 SKU 경고 (있을 때만).
+                _missing_skus = result.get("missing_skus") or []
+                if _missing_skus:
+                    _lines = "\n".join(
+                        f"• **{_nm or '(이름없음)'}** (`{_sid}`)"
+                        for _sid, _nm in _missing_skus
+                    )
+                    st.warning(
+                        f"⚠️ **CSV 에 사용량이 있지만 Price List 에서 단가를 찾지 못해 집계에서 제외된 SKU {len(_missing_skus)}건**\n\n"
+                        f"{_lines}\n\n"
+                        "→ Price List(xlsx) A열의 SKU 명과 CSV 'SKU 설명' 이 정확히 일치해야 매칭됩니다."
+                    )
 
 
 
