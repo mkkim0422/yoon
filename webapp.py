@@ -43,6 +43,7 @@ SAVED_RATE_LABEL_FILE   = Path(__file__).parent / "billing" / "saved_rate_label.
 SAVED_INCLUDE_PROJECT_FILE = Path(__file__).parent / "billing" / "saved_include_project.json"
 SAVED_SUBTOTAL_ROUND_FILE  = Path(__file__).parent / "billing" / "saved_subtotal_round.json"
 SAVED_HIDDEN_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_hidden_skus.json"
+SAVED_MANUAL_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_manual_skus.json"
 
 # GitHub 원격 경로 (Streamlit 휴면 후에도 단가표가 유지되도록 repo 에 백업/복원).
 # `.streamlit/secrets.toml` 의 [github] 설정이 없으면 조용히 no-op.
@@ -242,6 +243,35 @@ def _save_hidden_skus_for_account(account: str, skus: list[str]) -> None:
     data[account] = [str(s) for s in skus if isinstance(s, str) and s.strip()]
     SAVED_HIDDEN_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     SAVED_HIDDEN_SKUS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+# 사용자가 UI 에서 수동으로 "마스터 SKU 목록에서 가져와 강제로 노출"한 항목.
+# 현재 CSV 에 사용량이 없는 SKU 도 인보이스에 빈 라인으로 노출하고 싶을 때 사용.
+# sku_order 의 가장 마지막에 [직접등록] prefix 로 들어가며, 사용자가 X 버튼으로
+# 개별 제거 가능.
+def _load_manual_skus_map() -> dict[str, list[str]]:
+    if not SAVED_MANUAL_SKUS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SAVED_MANUAL_SKUS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, list[str]] = {}
+    for acc, lst in data.items():
+        if not isinstance(acc, str):
+            continue
+        if isinstance(lst, list):
+            out[acc] = [str(x) for x in lst if isinstance(x, str) and x.strip()]
+    return out
+
+
+def _save_manual_skus_for_account(account: str, skus: list[str]) -> None:
+    data = _load_manual_skus_map()
+    data[account] = [str(s) for s in skus if isinstance(s, str) and s.strip()]
+    SAVED_MANUAL_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_MANUAL_SKUS_FILE.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
@@ -633,6 +663,50 @@ header[role="banner"]        { display: none !important; }
 footer                       { visibility: hidden !important; }
 .main .block-container       { padding-top: 0.6rem !important; }
 [data-testid="stAppViewContainer"] > .main { padding-top: 0 !important; }
+/* Streamlit 1.4x+ 본문 컨테이너 (stHeader 숨겼으므로 상단 거의 0) */
+[data-testid="stMain"]            { padding-top: 0 !important; }
+[data-testid="stMainBlockContainer"],
+.stMainBlockContainer {
+    padding-top: 0.6rem !important;
+}
+/* 사이드바 block-container 기본 상단 패딩 축소 (Streamlit 기본 ~6rem) */
+[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebarUserContent"],
+[data-testid="stSidebarContent"],
+section[data-testid="stSidebar"] .block-container,
+section[data-testid="stSidebar"] > div,
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"]:first-child {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+/* 사이드바 첫 요소(로고 markdown) 자체의 상단 여백도 제거 */
+[data-testid="stSidebar"] [data-testid="stElementContainer"]:first-child,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"]:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+/* 사이드바 접기/펴기 버튼 숨기기 */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"],
+button[kind="headerNoPadding"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+/* 사이드바 강제 표시 (접기 버튼 사용 후에도 항상 펼친 상태 유지) */
+[data-testid="stSidebar"],
+section[data-testid="stSidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    transform: none !important;
+    margin-left: 0 !important;
+    min-width: 244px !important;
+    width: 244px !important;
+}
+[data-testid="stSidebar"][aria-expanded="false"] {
+    margin-left: 0 !important;
+    transform: none !important;
+}
 
 /* ── 정산 진행 로딩 오버레이 (화면 딤) ── */
 .sph-loading-overlay {
@@ -862,10 +936,10 @@ if "master_df" not in st.session_state:
 # ── 사이드바 ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
-    <div style="text-align:center; padding:22px 0 18px;">
+    <div style="text-align:center; padding:0 0 12px;">
         <div style="
             background:rgba(255,255,255,0.13); border-radius:16px;
-            padding:16px 0; margin-bottom:8px;
+            padding:12px 0; margin-bottom:4px;
         ">
             <div style="font-size:2.2rem; margin-bottom:5px;">🗺️</div>
             <div style="font-weight:800; font-size:1.08rem; color:white; letter-spacing:-0.3px;">
@@ -1015,9 +1089,9 @@ components.html(
 st.markdown("""
 <div style="
     display:flex; align-items:center; gap:18px;
-    padding:6px 2px 22px;
+    padding:0 2px 16px;
     border-bottom:2px solid #d4e2e6;
-    margin-bottom:22px;
+    margin-bottom:16px;
 ">
     <div style="
         background:linear-gradient(135deg,#00788a,#005060);
@@ -1410,7 +1484,12 @@ if True:
         # 세 영역(SKU 순서 / 통화·환율 / 다운로드 옵션) 을 각각 bordered
         # container 로 명확히 구분해서 시각적 그룹핑을 만든다.
         with col_left, st.container(border=True):
-            if _found_skus:
+            # 마스터 SKU 직접등록 목록 (이번 CSV 사용량 0 이어도 노출하고 싶은
+            # 항목 — 사용자가 multiselect 로 수동 선택). 계정별 저장.
+            _saved_manual_all   = _load_manual_skus_map()
+            _manual_skus_saved  = _saved_manual_all.get(_order_account_key, [])
+
+            if _found_skus or _manual_skus_saved:
                 _saved_orders = _load_saved_orders()
                 _saved_for_this = _saved_orders.get(_order_account_key, [])
 
@@ -1418,8 +1497,11 @@ if True:
                 _existing   = [n for n in _saved_for_this if n in _found_skus]
                 _new_items  = [n for n in _found_skus if n not in _existing]
                 _NEW_COUNT  = len(_new_items)
+                # 직접등록 항목은 CSV 에 있으면 일반 항목으로 흡수, 없을 때만 별도 표시
+                _manual_only = [m for m in _manual_skus_saved if m not in _found_skus]
+                _MANUAL_COUNT = len(_manual_only)
 
-                st.markdown(f"#### 📋 엑셀 SKU 노출 순서 ({len(_found_skus)}개)")
+                st.markdown(f"#### 📋 엑셀 SKU 노출 순서 ({len(_found_skus) + _MANUAL_COUNT}개)")
                 if _new_items and _existing:
                     st.caption(
                         "연한 초록 배경 = **[신규 항목]**. 드래그로 위치 조정 후 "
@@ -1433,9 +1515,15 @@ if True:
                 else:
                     st.caption("드래그하여 엑셀에 나올 순서를 조정하세요.")
 
-                # 신규 항목은 라벨에 [신규 항목] prefix로 표시 (저장 전 제거)
-                _NEW_PREFIX = "[신규 항목] "
-                _initial = _existing + [f"{_NEW_PREFIX}{n}" for n in _new_items]
+                # 신규 항목은 라벨에 [신규 항목] prefix, 직접등록은 [직접등록]
+                # prefix 로 표시 (저장 전 제거).
+                _NEW_PREFIX    = "[신규 항목] "
+                _MANUAL_PREFIX = "[직접등록] "
+                _initial = (
+                    _existing
+                    + [f"{_NEW_PREFIX}{n}" for n in _new_items]
+                    + [f"{_MANUAL_PREFIX}{n}" for n in _manual_only]
+                )
 
                 # sortable 컴포넌트 key: 입력 항목이 변경되면 새 key로 캐시 초기화
                 _items_fingerprint = hashlib.md5(
@@ -1455,16 +1543,30 @@ if True:
                 #       텍스트·폰트 렌더링 차이로 인한 픽셀 단위 변화 차단.
                 #   (d) :hover 룰 전면 제거 — cursor 만 변경.
                 _new_css = ""
+                # 가장 마지막 _MANUAL_COUNT 개 = [직접등록] (보라색 톤)
+                # 그 직전 _NEW_COUNT 개 = [신규 항목] (연한 초록)
                 if _NEW_COUNT > 0:
-                    _new_css = f"""
-                    .sortable-item:nth-last-child(-n+{_NEW_COUNT}),
-                    .sortable-item:nth-last-child(-n+{_NEW_COUNT}):hover,
-                    .sortable-item:nth-last-child(-n+{_NEW_COUNT}):focus {{
+                    _new_css += f"""
+                    .sortable-item:nth-last-child(n+{_MANUAL_COUNT + 1}):nth-last-child(-n+{_MANUAL_COUNT + _NEW_COUNT}),
+                    .sortable-item:nth-last-child(n+{_MANUAL_COUNT + 1}):nth-last-child(-n+{_MANUAL_COUNT + _NEW_COUNT}):hover,
+                    .sortable-item:nth-last-child(n+{_MANUAL_COUNT + 1}):nth-last-child(-n+{_MANUAL_COUNT + _NEW_COUNT}):focus {{
                         background: linear-gradient(135deg, #f2fae3 0%, #e4f2cd 100%) !important;
                         background-color: transparent !important;
                         border-color: #cfe7a8 !important;
                         border-left-color: #7dbb26 !important;
                         color: #1b3d06 !important;
+                    }}
+                    """
+                if _MANUAL_COUNT > 0:
+                    _new_css += f"""
+                    .sortable-item:nth-last-child(-n+{_MANUAL_COUNT}),
+                    .sortable-item:nth-last-child(-n+{_MANUAL_COUNT}):hover,
+                    .sortable-item:nth-last-child(-n+{_MANUAL_COUNT}):focus {{
+                        background: linear-gradient(135deg, #f5eafa 0%, #ead7f4 100%) !important;
+                        background-color: transparent !important;
+                        border-color: #d4b8e3 !important;
+                        border-left-color: #8e44ad !important;
+                        color: #3d1854 !important;
                     }}
                     """
 
@@ -1523,11 +1625,14 @@ if True:
                     key=_order_state_key,
                 )
 
-                # prefix 제거해 실제 SKU 순서 확정
-                sku_order = [
-                    (x[len(_NEW_PREFIX):] if x.startswith(_NEW_PREFIX) else x)
-                    for x in _reordered
-                ]
+                # prefix 제거해 실제 SKU 순서 확정 — 신규/직접등록 양쪽 처리
+                def _strip_prefix(_x: str) -> str:
+                    if _x.startswith(_NEW_PREFIX):
+                        return _x[len(_NEW_PREFIX):]
+                    if _x.startswith(_MANUAL_PREFIX):
+                        return _x[len(_MANUAL_PREFIX):]
+                    return _x
+                sku_order = [_strip_prefix(x) for x in _reordered]
 
                 # 현재 순서 저장 버튼 (secondary)
                 if st.button(
@@ -1543,6 +1648,97 @@ if True:
                         icon="💾",
                     )
                     st.rerun()
+
+                # ── 마스터 SKU 직접 등록 (현재 CSV 에 없어도 노출) ────────
+                # 후보 소스 = master_data.csv ∪ Price List (둘 다 합쳐 누락 0).
+                # 메모리상 master_data.csv 는 단일 진실 소스가 아니므로 Price
+                # List 의 SKU 도 반드시 포함.
+                _all_known_skus: set[str] = set()
+                # (a) master_data.csv 의 sku_name
+                try:
+                    _all_known_skus |= {
+                        str(n).strip()
+                        for n in st.session_state.master_df["sku_name"].dropna().tolist()
+                        if str(n).strip()
+                    }
+                except Exception:
+                    pass
+                # (b) Price List (xlsx) 의 SKU 명 — 마스터에 없는 SKU 포함
+                if price_list_file is not None:
+                    try:
+                        from billing.loader import get_sku_tiers_from_price_list
+                        _all_known_skus |= set(
+                            get_sku_tiers_from_price_list(price_list_file).keys()
+                        )
+                    except Exception:
+                        pass
+                _all_master_skus = sorted(_all_known_skus)
+                # 이미 CSV 에서 발견됐거나, 이미 직접등록된 항목은 후보에서 제외
+                _manual_candidates = [
+                    s for s in _all_master_skus
+                    if s not in _found_skus and s not in _manual_skus_saved
+                ]
+
+                # ── 콜백: 멀티셀렉트 변경 시 즉시 저장 + 선택 해제 ──────
+                _manual_add_key = f"_manual_add_ms::{_order_account_key}"
+
+                def _on_manual_add(
+                    acc: str = _order_account_key,
+                    ms_key: str = _manual_add_key,
+                ) -> None:
+                    _sel = list(st.session_state.get(ms_key, []) or [])
+                    if not _sel:
+                        return
+                    _curr = _load_manual_skus_map().get(acc, [])
+                    _new  = list(dict.fromkeys(_curr + _sel))
+                    _save_manual_skus_for_account(acc, _new)
+                    st.session_state[ms_key] = []  # 선택 해제 — 패널에 chip 만 남도록
+                    st.toast(f"✏️ 직접등록 {len(_sel)}개 추가", icon="➕")
+
+                st.multiselect(
+                    f"➕ 마스터에서 직접 SKU 추가 (총 {len(_all_master_skus)}개 후보 · CSV 사용량 0 도 노출)",
+                    options=_manual_candidates,
+                    default=[],
+                    key=_manual_add_key,
+                    on_change=_on_manual_add,
+                    help=(
+                        "마스터(master_data.csv) ∪ Price List 의 SKU 중 이번 CSV 에 "
+                        "사용량이 없는 항목을 선택하면, 순서 조정 패널 가장 하단에 "
+                        "[직접등록] 으로 추가됩니다. 인보이스에 빈 라인으로 출력됩니다."
+                    ),
+                )
+
+                # ── 콜백: X 버튼 클릭 시 즉시 1개 제거 ────────────────────
+                def _on_manual_remove(
+                    acc: str, sku: str,
+                ) -> None:
+                    _curr = _load_manual_skus_map().get(acc, [])
+                    _new  = [x for x in _curr if x != sku]
+                    _save_manual_skus_for_account(acc, _new)
+                    st.toast(f"🗑 '{sku}' 직접등록 해제", icon="✏️")
+
+                # 직접등록된 SKU 개별 X 버튼 (현재 CSV 에 없는 것만 표시)
+                if _manual_only:
+                    st.caption("✏️ 직접등록된 SKU — X 클릭 시 즉시 제거")
+                    for _ms in _manual_only:
+                        _c1, _c2 = st.columns([6, 1])
+                        with _c1:
+                            st.markdown(
+                                f"<div style='padding:6px 10px;background:#f5eafa;"
+                                f"border-left:4px solid #8e44ad;border-radius:8px;"
+                                f"font-size:0.88rem;color:#3d1854;font-weight:600;'>"
+                                f"{_ms}</div>",
+                                unsafe_allow_html=True,
+                            )
+                        with _c2:
+                            st.button(
+                                "✕",
+                                key=f"_rm_manual::{_order_account_key}::{_ms}",
+                                help=f"'{_ms}' 직접등록 해제",
+                                use_container_width=True,
+                                on_click=_on_manual_remove,
+                                args=(_order_account_key, _ms),
+                            )
 
                 # ── 엑셀 미노출 SKU (수동) ──────────────────────────────
                 # 엔진 계산(waterfall/sku_master/line_items) 에는 영향 주지 않음.
@@ -2145,6 +2341,67 @@ if True:
                         ),
                     )
 
+                    # ── 직접등록 SKU 빈 라인 주입 (출력 단계 한정) ──────────
+                    # 사용자가 사이드 패널에서 마스터로부터 직접 추가한 SKU 중
+                    # 이번 CSV 사용량이 0 인 항목은 엔진 결과에 없다 →
+                    # 인보이스에 빈 라인으로 라도 노출하기 위해 BillingLineItem
+                    # stub 을 만들어 line_items / per_project_invoices 양쪽에 주입.
+                    # 추가로 generate_formatted_invoice 의 canonical 필터가
+                    # usage=0 항목을 제거하므로 `force_keep_skus` 로 화이트리스트.
+                    try:
+                        _manual_for_inject = _load_manual_skus_map().get(
+                            _order_account_key, []
+                        )
+                    except Exception:
+                        _manual_for_inject = []
+                    _manual_keep_set: set[str] = set()
+                    if _manual_for_inject:
+                        from billing.models import BillingLineItem as _BLI
+                        from decimal import Decimal as _D
+
+                        def _make_stub(_nm: str) -> "_BLI":
+                            return _BLI(
+                                billing_month   = billing_month or "",
+                                project_id      = "",
+                                project_name    = "",
+                                sku_id          = "",
+                                sku_name        = _nm,
+                                total_usage     = 0,
+                                free_usage_cap  = 0,
+                                free_cap_applied= 0,
+                                billable_usage  = 0,
+                                tier_breakdown  = [],
+                                subtotal_usd    = _D("0"),
+                                exchange_rate   = _ex,
+                                margin_rate     = _mr,
+                                final_krw       = _D("0"),
+                            )
+
+                        # account 모드 line_items 주입
+                        _existing_names = {
+                            getattr(_it, "sku_name", "") for _it in line_items
+                        }
+                        _missing_manual = [
+                            m for m in _manual_for_inject
+                            if m and m not in _existing_names
+                        ]
+                        for _nm in _missing_manual:
+                            line_items.append(_make_stub(_nm))
+                        _manual_keep_set |= set(_manual_for_inject)
+
+                        # per_project 모드: 각 프로젝트 line_items 에도 주입
+                        # (해당 프로젝트에 없는 manual SKU 만)
+                        if _per_proj_invoices:
+                            for _entry in _per_proj_invoices:
+                                _proj_items = _entry.get("line_items") or []
+                                _proj_names = {
+                                    getattr(_it, "sku_name", "") for _it in _proj_items
+                                }
+                                for _nm in _manual_for_inject:
+                                    if _nm and _nm not in _proj_names:
+                                        _proj_items.append(_make_stub(_nm))
+                                _entry["line_items"] = _proj_items
+
                     # ── 수동 미노출 SKU 필터 (출력 단계 한정) ──────────────
                     # 엔진 결과(line_items / proj_results / _per_proj_invoices) 는
                     # 그대로 두고, 엑셀 생성 함수에 넘겨줄 **사본**에서 지정된
@@ -2235,6 +2492,7 @@ if True:
                         rate_extra           = rate_extra_text.strip(),
                         include_project_sheet= include_project_sheet,
                         subtotal_round       = subtotal_round,
+                        force_keep_skus      = _manual_keep_set or None,
                     )
 
                     # PDF 변환 (체크된 경우만)

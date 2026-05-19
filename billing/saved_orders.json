@@ -157,5 +157,12 @@
   "SoftEN Corp.": [
     "Dynamic Maps",
     "Geocoding"
+  ],
+  "Samsung-NowBrief": [
+    "Directions Advanced",
+    "Dynamic Maps",
+    "Geocoding",
+    "Maps SDK",
+    "Routes: Compute Routes Pro"
   ]
 }

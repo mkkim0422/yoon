@@ -13,17 +13,23 @@ _UNLIMITED_CAP = 999_999_999
 # **선택된 계정의 CSV 에 실제 사용량(usage>0) 이 찍혀 있는지** 하나로 통일.
 
 
-def filter_canonical_line_items(line_items, canonical=None):
+def filter_canonical_line_items(line_items, canonical=None, force_keep=None):
     """usage > 0 인 line_items 만 반환 (이름은 하위 호환용).
 
     과거엔 canonical 화이트리스트 대조 + usage>0 2중 필터였으나,
     이제는 CSV 실측값 하나를 기준으로 한다. `canonical` 파라미터는
     과거 호출부 호환용으로 남겨 두었을 뿐 동작에 영향이 없다.
+
+    `force_keep` (set[str] | None): 지정 시 해당 sku_name 은 usage=0 이어도
+    무조건 유지한다 — 사용자가 UI 에서 [직접등록] 한 SKU 를 빈 라인으로
+    노출하는 용도.
     """
     del canonical  # 하위 호환 유지용 — 동작에 사용하지 않음
+    _force = set(force_keep or ())
     return [
         it for it in line_items
         if int(getattr(it, "total_usage", 0) or 0) > 0
+        or getattr(it, "sku_name", "") in _force
     ]
 
 

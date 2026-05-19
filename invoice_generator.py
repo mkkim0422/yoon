@@ -111,6 +111,7 @@ def generate_formatted_invoice(
     rate_extra: str = "",
     include_project_sheet: bool = True,
     subtotal_round: int | None = None,
+    force_keep_skus: set[str] | None = None,
 ) -> bytes | None:
     """
     Invoice 시트를 생성한다.
@@ -130,11 +131,16 @@ def generate_formatted_invoice(
     strict_canonical=True (기본):
       total_usage > 0 인 항목만 유지 (하드코딩 화이트리스트 없음).
     """
+    _force_keep = set(force_keep_skus or ())
     def _filter(items):
         if strict_canonical:
-            return filter_canonical_line_items(items)
+            return filter_canonical_line_items(items, force_keep=_force_keep)
         if billable_skus:
-            return [it for it in items if it.sku_name in billable_skus]
+            # 직접등록 SKU 는 billable 화이트리스트에도 없을 수 있으니 별도 보존
+            return [
+                it for it in items
+                if it.sku_name in billable_skus or it.sku_name in _force_keep
+            ]
         return items
 
     line_items = _filter(line_items)
