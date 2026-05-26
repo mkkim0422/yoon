@@ -1236,6 +1236,10 @@ def render_batch_billing_ui(
                     "비고":      _cur_note,
                 })
             _df = pd.DataFrame(_df_rows)
+            # 비고: pandas 가 빈 문자열을 NaN 으로 추론하면 data_editor 가
+            # "None" 으로 렌더할 수 있어 명시적으로 빈 문자열 + str 형변환.
+            if "비고" in _df.columns:
+                _df["비고"] = _df["비고"].fillna("").astype(str).replace("None", "")
             st.session_state[_DF_CACHE_KEY] = _df
             st.session_state[_DF_ROWS_CACHE_KEY] = _df_rows
             st.session_state[_DF_VER_KEY] = _cache_version
@@ -1328,6 +1332,8 @@ def render_batch_billing_ui(
                 _note_v = str(_changes_dict["비고"] or "").strip()
                 st.session_state[f"_batch_note_{_nc}"] = _note_v
                 _save_company_note_for_account(_orig_company, _note_v)
+                # DataFrame 캐시 무효화 → 다음 rerun 시 재빌드해서 "None" 잔재 제거.
+                st.session_state.pop(_DF_VER_KEY, None)
 
         # 편집된 회사별 환율 표기(은행/문구) 영구 저장 — 다음 접속 시 복원.
         # 환율 값/기준일은 일괄 입력값을 우선시하므로 saved_rate_label 에는
