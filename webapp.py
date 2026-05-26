@@ -337,11 +337,23 @@ def _format_billing_timings_line(company: str, timings: dict) -> str:
     return f"`{company}` — " + " / ".join(_parts)
 
 
+def _update_ema(prev: float | None, new_value: float, alpha: float = 0.3) -> float:
+    """지수가중이동평균 갱신. prev=None 이면 첫 샘플을 그대로 반환."""
+    if prev is None:
+        return new_value
+    return alpha * new_value + (1 - alpha) * prev
+
+
 def _format_eta_seconds(seconds: float) -> str:
     """남은 시간 사람용 포맷.
-    60초 미만:        '약 N초'
-    1분 이상 5분 미만: '약 N분 N초'   (5분 미만은 초도 의미 있음)
-    5분 이상:         '약 N분'        (5분+ 는 초 단위 의미 약함)
+    시각적 안정성을 위해 큰 단위에선 버킷(round-to-nearest) 적용 — EMA 와 함께
+    8분→10분 같은 1~2분 미세 변동이 같은 버킷으로 흡수되어 표시가 흔들리지 않음.
+
+      < 60초:   '약 N초'                          (정밀)
+      1~5분:    '약 N분 N초'                       (1초 단위)
+      5~10분:   '약 N분'   (2분 단위 round)        (2,4,6,8,10)
+      10~30분:  '약 N분'   (5분 단위 round)        (10,15,20,25,30)
+      30분+:    '약 N분'   (10분 단위 round)       (30,40,50,…)
     """
     if seconds is None or seconds <= 0:
         return "곧 완료"
@@ -349,9 +361,19 @@ def _format_eta_seconds(seconds: float) -> str:
     if _s < 60:
         return f"약 {_s}초"
     _m, _r = divmod(_s, 60)
-    if _m >= 5 or _r == 0:
-        return f"약 {_m}분"
-    return f"약 {_m}분 {_r}초"
+    # 1~5분 구간: 초 단위까지
+    if _m < 5:
+        if _r == 0:
+            return f"약 {_m}분"
+        return f"약 {_m}분 {_r}초"
+    # 5분+ 구간: 버킷으로 라운드
+    if _m < 10:
+        _bucket = max(2, round(_m / 2) * 2)
+    elif _m < 30:
+        _bucket = max(10, round(_m / 5) * 5)
+    else:
+        _bucket = max(30, round(_m / 10) * 10)
+    return f"약 {_bucket}분"
 
 
 def _render_batch_overlay(
@@ -360,24 +382,23 @@ def _render_batch_overlay(
     idx: int,
     total: int,
     company: str,
-    elapsed: float,
-    finished: int,
+    remaining_seconds: float | None = None,
     done: bool = False,
 ) -> None:
     """일괄 정산 진행 중 전체 화면 dim + 가운데 진행 카드 렌더.
 
     - position: fixed 로 페이지 전체를 덮어 위젯 오해/오클릭 방지.
     - placeholder.html(...) 로 호출마다 내부 텍스트 갱신.
+    - remaining_seconds: 호출부가 EMA 등으로 미리 계산해 넘긴 남은 초.
+      None 이면 ETA 미표시 (첫 회사 처리 중 등 추정 불가 상태).
     - 완료 시 done=True 로 호출하면 자동으로 placeholder.empty() 호출하지 않고
       메시지만 바꿔 두므로, 호출 직후 placeholder.empty() 로 오버레이를 제거할 것.
     """
     if total <= 0:
         return
     _pct = min(100, int(round(idx / total * 100)))
-    if finished > 0 and total > finished and not done:
-        _avg = elapsed / finished
-        _eta = _format_eta_seconds(_avg * (total - finished))
-        _meta = f"남은 시간 {_eta}"
+    if remaining_seconds is not None and not done:
+        _meta = f"남은 시간 {_format_eta_seconds(remaining_seconds)}"
     else:
         _meta = "&nbsp;"
     # company 안전 escape — < > & 만 처리해도 충분 (단순 텍스트)
@@ -1364,13 +1385,21 @@ def render_batch_billing_ui(
 
     zip_buf = _io.BytesIO()
     _finished_count = 0  # 누적 완료 회사 수 (ETA 계산용)
+    # EMA(지수가중이동평균) — 한두 회사의 큰 처리 시간이 평균을 흔들지 않도록 부드럽게.
+    # alpha=0.3 → 새 데이터 30%, 기존 평균 70% 반영.
+    _ema_per_company: float | None = None
+    _EMA_ALPHA = 0.3
     with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
-            _elapsed_so_far = _t_perf2.time() - _t_loop_start
+            _remaining = (
+                _ema_per_company * (total - _finished_count)
+                if _ema_per_company is not None and total > _finished_count
+                else None
+            )
             _render_batch_overlay(
                 overlay_ph, idx=idx, total=total, company=c,
-                elapsed=_elapsed_so_far, finished=_finished_count,
+                remaining_seconds=_remaining,
             )
             _t_company_start = _t_perf2.time()
 
@@ -1433,6 +1462,9 @@ def render_batch_billing_ui(
                         "error": "정책=건너뛰기",
                     })
                     log_lines.append(f"⏭ **{c}** — 비용발생 SKU {len(_paid_names)}개 → 건너뜀")
+                    _ema_per_company = _update_ema(
+                        _ema_per_company, _t_perf2.time() - _t_company_start, _EMA_ALPHA,
+                    )
                     _finished_count += 1
                     continue
                 elif batch_policy == "move":
@@ -1475,6 +1507,9 @@ def render_batch_billing_ui(
                     "paid_in_hidden": [],
                 })
                 log_lines.append(f"❌ **{c}** — {res.get('error')}")
+                _ema_per_company = _update_ema(
+                    _ema_per_company, _t_perf2.time() - _t_company_start, _EMA_ALPHA,
+                )
                 _finished_count += 1
                 continue
 
@@ -1504,6 +1539,7 @@ def render_batch_billing_ui(
             log_lines.append(f"✅ **{c}**{_hint}")
             _t_company_elapsed = _t_perf2.time() - _t_company_start
             print(f"[정산루프] ({idx}/{total}) {c} 완료: {_t_company_elapsed:.3f}초")
+            _ema_per_company = _update_ema(_ema_per_company, _t_company_elapsed, _EMA_ALPHA)
             # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
@@ -5284,14 +5320,21 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
 
     zip_buf = _io.BytesIO()
     _finished_count = 0  # 누적 완료 회사 수 (ETA 계산용)
+    _ema_per_company: float | None = None
+    _EMA_ALPHA = 0.3
     with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
-            _elapsed_so_far = _t_perf3.time() - _t_loop_start2
+            _remaining = (
+                _ema_per_company * (total - _finished_count)
+                if _ema_per_company is not None and total > _finished_count
+                else None
+            )
             _render_batch_overlay(
                 overlay_ph, idx=idx, total=total, company=c,
-                elapsed=_elapsed_so_far, finished=_finished_count,
+                remaining_seconds=_remaining,
             )
+            _t_company_start = _t_perf3.time()
 
             # 회사별 saved 값 로드 (lookup 폴백 포함)
             _saved_for   = _lookup_account(_orders_all,   c) or []
@@ -5344,6 +5387,9 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                         "error": "정책=건너뛰기",
                     })
                     log_lines.append(f"⏭ **{c}** — 비용발생 SKU {len(_paid_names)}개 → 건너뜀")
+                    _ema_per_company = _update_ema(
+                        _ema_per_company, _t_perf3.time() - _t_company_start, _EMA_ALPHA,
+                    )
                     _finished_count += 1
                     continue
                 elif batch_policy == "move":
@@ -5388,6 +5434,9 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                     "paid_in_hidden": [],
                 })
                 log_lines.append(f"❌ **{c}** — {res.get('error')}")
+                _ema_per_company = _update_ema(
+                    _ema_per_company, _t_perf3.time() - _t_company_start, _EMA_ALPHA,
+                )
                 _finished_count += 1
                 continue
 
@@ -5416,6 +5465,9 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
             if _val_w:
                 _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
+            _ema_per_company = _update_ema(
+                _ema_per_company, _t_perf3.time() - _t_company_start, _EMA_ALPHA,
+            )
             # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
