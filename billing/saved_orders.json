@@ -694,9 +694,9 @@
     "Autocomplete without Places Details - Per Session",
     "Basic Data",
     "Directions",
-    "Directions Advanced",
     "Maps SDK",
-    "Places Details"
+    "Places Details",
+    "Directions Advanced"
   ],
   "koreaairport": [
     "Dynamic Maps",
