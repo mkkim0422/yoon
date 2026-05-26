@@ -353,6 +353,100 @@ def _format_eta_seconds(seconds: float) -> str:
     return f"약 {_m}분 {_r}초"
 
 
+def _render_batch_overlay(
+    placeholder,
+    *,
+    idx: int,
+    total: int,
+    company: str,
+    elapsed: float,
+    finished: int,
+    done: bool = False,
+) -> None:
+    """일괄 정산 진행 중 전체 화면 dim + 가운데 진행 카드 렌더.
+
+    - position: fixed 로 페이지 전체를 덮어 위젯 오해/오클릭 방지.
+    - placeholder.html(...) 로 호출마다 내부 텍스트 갱신.
+    - 완료 시 done=True 로 호출하면 자동으로 placeholder.empty() 호출하지 않고
+      메시지만 바꿔 두므로, 호출 직후 placeholder.empty() 로 오버레이를 제거할 것.
+    """
+    if total <= 0:
+        return
+    _pct = min(100, int(round(idx / total * 100)))
+    if finished > 0 and total > finished and not done:
+        _avg = elapsed / finished
+        _eta = _format_eta_seconds(_avg * (total - finished))
+        _meta = f"평균 {_avg:.1f}초/사 · 남은 {_eta}"
+    else:
+        _meta = "&nbsp;"
+    # company 안전 escape — < > & 만 처리해도 충분 (단순 텍스트)
+    import html as _html
+    _safe_company = _html.escape(str(company or ""))
+    _title = "✅ 정산 완료" if done else "⏳ 정산 진행 중"
+    _sub = "잠시 후 결과가 표시됩니다…" if done else f"현재: {_safe_company}"
+    placeholder.html(f"""
+<style>
+.sph-overlay-wrap {{
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(15,18,22,0.72);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+.sph-overlay-card {{
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 28px 36px;
+  min-width: 360px; max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  text-align: center;
+}}
+.sph-overlay-title {{
+  font-size: 1.15rem; font-weight: 700; color: #1f2933;
+  margin-bottom: 14px; letter-spacing: 0.2px;
+}}
+.sph-overlay-count {{
+  font-size: 2.4rem; font-weight: 800; color: #0b6fda;
+  line-height: 1.0; margin: 6px 0 10px 0;
+  font-variant-numeric: tabular-nums;
+}}
+.sph-overlay-bar {{
+  width: 100%; height: 10px; background: #e6ebf0;
+  border-radius: 999px; overflow: hidden; margin: 6px 0 14px 0;
+}}
+.sph-overlay-bar > div {{
+  height: 100%; background: linear-gradient(90deg, #0b6fda, #21b6f6);
+  width: {_pct}%; transition: width 0.25s ease-out;
+}}
+.sph-overlay-sub {{
+  font-size: 0.95rem; color: #475568; margin-bottom: 4px;
+  word-break: break-all;
+}}
+.sph-overlay-meta {{
+  font-size: 0.85rem; color: #7a8a90;
+  font-variant-numeric: tabular-nums;
+}}
+/* 본문 위젯 클릭 차단 (시각/물리 둘 다) */
+section[data-testid="stMain"], section[data-testid="stSidebar"] {{
+  pointer-events: none !important;
+}}
+.sph-overlay-wrap, .sph-overlay-card {{
+  pointer-events: auto !important;
+}}
+</style>
+<div class="sph-overlay-wrap">
+  <div class="sph-overlay-card">
+    <div class="sph-overlay-title">{_title}</div>
+    <div class="sph-overlay-count">{idx} / {total}</div>
+    <div class="sph-overlay-bar"><div></div></div>
+    <div class="sph-overlay-sub">{_sub}</div>
+    <div class="sph-overlay-meta">{_meta}</div>
+  </div>
+</div>
+""")
+
+
 def _format_progress_text(
     idx: int, total: int, company: str,
     elapsed: float, finished: int,
@@ -1150,7 +1244,8 @@ def render_batch_billing_ui(
         st.error("Price List(xlsx) 가 없습니다. 사이드바에서 업로드해 주세요.")
         return
 
-    progress_ph = st.progress(0.0, text="정산 준비 중...")
+    # 정산 중 화면 dim + 가운데 진행 카드. 오해/오클릭 차단.
+    overlay_ph = st.empty()
     log_lines:   list[str] = []
     results:     list[dict] = []
     safe_re = _re.compile(r'[\\/*?:"<>|]')
@@ -1188,8 +1283,7 @@ def render_batch_billing_ui(
     _t_loop_start = _t_perf2.time()
     print(f"[정산루프] 시작 - 총 {len(_checked)}개사")
 
-    # progress_ph 아래에 회사별 단계 소요시간을 실시간 표시 (터미널 print 와 병행).
-    _timings_ph = st.empty()
+    # per-company timing 라인은 결과 expander 용으로만 수집 (UI 표시는 안 함 — 오버레이로 대체)
     _timings_lines: list[str] = []
 
     zip_buf = _io.BytesIO()
@@ -1198,11 +1292,9 @@ def render_batch_billing_ui(
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
             _elapsed_so_far = _t_perf2.time() - _t_loop_start
-            progress_ph.progress(
-                (idx - 1) / total,
-                text=_format_progress_text(
-                    idx, total, c, _elapsed_so_far, _finished_count,
-                ),
+            _render_batch_overlay(
+                overlay_ph, idx=idx, total=total, company=c,
+                elapsed=_elapsed_so_far, finished=_finished_count,
             )
             _t_company_start = _t_perf2.time()
 
@@ -1336,7 +1428,7 @@ def render_batch_billing_ui(
             log_lines.append(f"✅ **{c}**{_hint}")
             _t_company_elapsed = _t_perf2.time() - _t_company_start
             print(f"[정산루프] ({idx}/{total}) {c} 완료: {_t_company_elapsed:.3f}초")
-            # UI: 회사별 단계 소요시간 한 줄 추가 → progress bar 아래 실시간 갱신.
+            # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
             )
@@ -1345,16 +1437,16 @@ def render_batch_billing_ui(
                     f"  🚨 **{c}** 정합성 경고: " + " / ".join(_val_w[:2])
                     + (f" (외 {len(_val_w)-2}건)" if len(_val_w) > 2 else "")
                 )
-            _timings_ph.markdown("  \n".join(_timings_lines))
             _finished_count += 1
 
-        progress_ph.progress(1.0, text="✅ 완료")
         _t_loop_total = _t_perf2.time() - _t_loop_start
         print(f"[정산루프] 전체 완료: {_t_loop_total:.3f}초 ({len(_checked)}개사)")
         _timings_lines.append(
             f"**전체 완료: {_t_loop_total:.2f}초 ({len(_checked)}개사)**"
         )
-        _timings_ph.markdown("  \n".join(_timings_lines))
+
+    # 루프 종료 — 오버레이 제거 (결과 영역이 자연스럽게 노출됨)
+    overlay_ph.empty()
 
     n_ok     = sum(1 for r in results if r["status"] in ("ok", "ok_with_paid"))
     n_paid   = sum(1 for r in results if r["status"] == "ok_with_paid")
@@ -1402,6 +1494,11 @@ def render_batch_billing_ui(
                     f"{nm}(₩{kw:,})" for nm, kw in r["paid_in_hidden"]
                 )
                 st.markdown(f"- {r['company']}: {_items}")
+
+    # 단계별 소요시간은 디버그용 expander 에 별도 노출 (기본 닫힘)
+    if _timings_lines:
+        with st.expander("⏱ 단계별 소요시간 (디버그)", expanded=False):
+            st.markdown("  \n".join(_timings_lines))
 
     if n_ok > 0:
         _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -5092,13 +5189,10 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
         return
 
     # ── 일괄 실행 루프 ───────────────────────────────────────────
-    progress_ph = st.progress(0.0, text="정산 준비 중...")
-    # progress_ph 아래에 회사별 단계 소요시간을 실시간 표시 (터미널 print 와 병행).
-    _timings_ph = st.empty()
-    _timings_lines: list[str] = []
+    overlay_ph = st.empty()    # 정산 중 화면 dim + 가운데 진행 카드
+    _timings_lines: list[str] = []   # 결과 expander 표시용 (UI 실시간 표시는 오버레이가 담당)
     import time as _t_perf3
     _t_loop_start2 = _t_perf3.time()
-    status_ph   = st.empty()
     log_lines:   list[str] = []
     results:     list[dict] = []
     safe_re = _re.compile(r'[\\/*?:"<>|]')
@@ -5109,11 +5203,9 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
             _elapsed_so_far = _t_perf3.time() - _t_loop_start2
-            progress_ph.progress(
-                (idx - 1) / total,
-                text=_format_progress_text(
-                    idx, total, c, _elapsed_so_far, _finished_count,
-                ),
+            _render_batch_overlay(
+                overlay_ph, idx=idx, total=total, company=c,
+                elapsed=_elapsed_so_far, finished=_finished_count,
             )
 
             # 회사별 saved 값 로드 (lookup 폴백 포함)
@@ -5239,7 +5331,7 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
             if _val_w:
                 _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
-            # UI: 회사별 단계 소요시간 한 줄 추가 → progress bar 아래 실시간 갱신.
+            # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
             )
@@ -5248,15 +5340,15 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                     f"  🚨 **{c}** 정합성 경고: " + " / ".join(_val_w[:2])
                     + (f" (외 {len(_val_w)-2}건)" if len(_val_w) > 2 else "")
                 )
-            _timings_ph.markdown("  \n".join(_timings_lines))
             _finished_count += 1
 
-        progress_ph.progress(1.0, text="✅ 완료")
         _t_loop_total2 = _t_perf3.time() - _t_loop_start2
         _timings_lines.append(
             f"**전체 완료: {_t_loop_total2:.2f}초 ({len(_checked)}개사)**"
         )
-        _timings_ph.markdown("  \n".join(_timings_lines))
+
+    # 루프 종료 — 오버레이 제거
+    overlay_ph.empty()
 
     # ── 결과 요약 + 다운로드 버튼 ──────────────────────────────────
     n_ok     = sum(1 for r in results if r["status"] in ("ok", "ok_with_paid"))
@@ -5307,6 +5399,11 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                     f"{nm}(₩{kw:,})" for nm, kw in r["paid_in_hidden"]
                 )
                 st.markdown(f"- {r['company']}: {_items}")
+
+    # 단계별 소요시간은 디버그용 expander 에 별도 노출 (기본 닫힘)
+    if _timings_lines:
+        with st.expander("⏱ 단계별 소요시간 (디버그)", expanded=False):
+            st.markdown("  \n".join(_timings_lines))
 
     # zip 다운로드
     if n_ok > 0:
