@@ -382,10 +382,28 @@ def _render_batch_overlay(
     # company 안전 escape — < > & 만 처리해도 충분 (단순 텍스트)
     import html as _html
     _safe_company = _html.escape(str(company or ""))
-    _title = "✅ 정산 완료" if done else "⏳ 정산 진행 중"
+    _title_text = "정산 완료" if done else "정산 진행 중"
     _sub = "잠시 후 결과가 표시됩니다…" if done else f"현재: {_safe_company}"
+    # 진행 중일 때만 스피너 + 진행바 시머 애니메이션. 완료 시 정적 체크.
+    _spinner_html = (
+        '<div class="sph-overlay-check">✓</div>' if done
+        else '<div class="sph-overlay-spinner"></div>'
+    )
+    _bar_class = "sph-overlay-bar-fill" + ("" if done else " sph-overlay-bar-shimmer")
     placeholder.html(f"""
 <style>
+@keyframes sph-spin {{
+  0%   {{ transform: rotate(0deg); }}
+  100% {{ transform: rotate(360deg); }}
+}}
+@keyframes sph-shimmer {{
+  0%   {{ background-position: -200px 0; }}
+  100% {{ background-position: 200px 0; }}
+}}
+@keyframes sph-pulse {{
+  0%, 100% {{ opacity: 1; }}
+  50%      {{ opacity: 0.55; }}
+}}
 .sph-overlay-wrap {{
   position: fixed; inset: 0; z-index: 9999;
   background: rgba(15,18,22,0.72);
@@ -398,13 +416,33 @@ def _render_batch_overlay(
   background: #ffffff;
   border-radius: 16px;
   padding: 28px 36px;
-  min-width: 360px; max-width: 90vw;
+  min-width: 380px; max-width: 92vw;
   box-shadow: 0 20px 60px rgba(0,0,0,0.45);
   text-align: center;
 }}
+.sph-overlay-title-row {{
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px; margin-bottom: 16px;
+}}
+.sph-overlay-spinner {{
+  width: 22px; height: 22px;
+  border: 3px solid #e6ebf0;
+  border-top-color: #0b6fda;
+  border-radius: 50%;
+  animation: sph-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}}
+.sph-overlay-check {{
+  width: 22px; height: 22px;
+  background: #21b96d; color: #ffffff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 0.9rem;
+  flex-shrink: 0;
+}}
 .sph-overlay-title {{
   font-size: 1.15rem; font-weight: 700; color: #1f2933;
-  margin-bottom: 14px; letter-spacing: 0.2px;
+  letter-spacing: 0.2px;
 }}
 .sph-overlay-count {{
   font-size: 2.4rem; font-weight: 800; color: #0b6fda;
@@ -415,13 +453,29 @@ def _render_batch_overlay(
   width: 100%; height: 10px; background: #e6ebf0;
   border-radius: 999px; overflow: hidden; margin: 6px 0 14px 0;
 }}
-.sph-overlay-bar > div {{
-  height: 100%; background: linear-gradient(90deg, #0b6fda, #21b6f6);
-  width: {_pct}%; transition: width 0.25s ease-out;
+.sph-overlay-bar-fill {{
+  height: 100%;
+  background: linear-gradient(90deg, #0b6fda, #21b6f6);
+  width: {_pct}%;
+  transition: width 0.25s ease-out;
+  border-radius: 999px;
+}}
+.sph-overlay-bar-shimmer {{
+  background: linear-gradient(
+    90deg,
+    #0b6fda 0%,
+    #21b6f6 40%,
+    #5fd0fa 50%,
+    #21b6f6 60%,
+    #0b6fda 100%
+  );
+  background-size: 200px 100%;
+  animation: sph-shimmer 1.4s linear infinite;
 }}
 .sph-overlay-sub {{
   font-size: 0.95rem; color: #475568; margin-bottom: 4px;
   word-break: break-all;
+  animation: sph-pulse 1.8s ease-in-out infinite;
 }}
 .sph-overlay-meta {{
   font-size: 0.85rem; color: #7a8a90;
@@ -437,9 +491,12 @@ section[data-testid="stMain"], section[data-testid="stSidebar"] {{
 </style>
 <div class="sph-overlay-wrap">
   <div class="sph-overlay-card">
-    <div class="sph-overlay-title">{_title}</div>
+    <div class="sph-overlay-title-row">
+      {_spinner_html}
+      <div class="sph-overlay-title">{_title_text}</div>
+    </div>
     <div class="sph-overlay-count">{idx} / {total}</div>
-    <div class="sph-overlay-bar"><div></div></div>
+    <div class="sph-overlay-bar"><div class="{_bar_class}"></div></div>
     <div class="sph-overlay-sub">{_sub}</div>
     <div class="sph-overlay-meta">{_meta}</div>
   </div>
