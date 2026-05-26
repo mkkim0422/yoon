@@ -2987,11 +2987,41 @@ if True:
             st.markdown("#### 정산 대상 선택")
             if companies:
                 companies = sorted(companies, key=lambda c: str(c).lower())
-                selected_company = st.selectbox(
-                    "결제 계정 (Billing Account Name)",
-                    options=companies,
-                    key="_account_select",
+                # 검색창 — substring 매칭 (정규화 키 + 소문자) 으로 일괄 정산 UI 와 동일.
+                # Streamlit selectbox 기본은 부분수열(subsequence) 매칭이라 의도치 않은
+                # 회사가 결과에 끼는 문제가 있어, 직접 필터링 후 옵션을 좁혀준다.
+                _acc_search = st.text_input(
+                    "🔍 결제 계정 검색",
+                    value="",
+                    key="_account_search",
+                    placeholder="회사명 일부를 입력하면 해당 회사만 표시됩니다",
+                    label_visibility="collapsed",
                 )
+                if _acc_search:
+                    _qn = _norm_account_key(_acc_search)
+                    _ql = _acc_search.lower()
+                    _filtered = [
+                        c for c in companies
+                        if (_qn and _qn in _norm_account_key(c))
+                        or _ql in c.lower()
+                    ]
+                else:
+                    _filtered = companies
+                if not _filtered:
+                    st.caption(f"🔍 '{_acc_search}' 와 일치하는 결제계정이 없습니다.")
+                    selected_company = None
+                else:
+                    # selectbox 에 key 가 있으면 session_state 의 기존 값이 옵션에
+                    # 없을 때 StreamlitAPIException — 필터 변경으로 사라진 값은
+                    # 미리 제거해 첫 항목이 선택되도록 한다.
+                    _saved_acc = st.session_state.get("_account_select")
+                    if _saved_acc is not None and _saved_acc not in _filtered:
+                        st.session_state.pop("_account_select", None)
+                    selected_company = st.selectbox(
+                        "결제 계정 (Billing Account Name)",
+                        options=_filtered,
+                        key="_account_select",
+                    )
             else:
                 selected_company = None
                 st.info("파일에서 결제 계정 정보를 찾을 수 없습니다. 전체 데이터를 처리합니다.")
