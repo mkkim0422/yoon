@@ -1205,12 +1205,32 @@ def render_batch_billing_ui(
 
         # DataFrame 캐싱 — 매 rerun 새 객체 회피.
         # batch_rate 가 None(빈칸) 일 수 있어 float 강제 변환 불필요.
+        # saved_*.json 변경(단일 정산에서 옵션 수정 등) 도 감지하도록 각 dict
+        # 의 짧은 md5 해시를 cache_version 에 포함. 변경 시 자동 무효화.
+        import hashlib as _hashlib
+        def _dict_hash(d) -> str:
+            try:
+                return _hashlib.md5(
+                    json.dumps(d, sort_keys=True, ensure_ascii=False, default=str)
+                    .encode("utf-8")
+                ).hexdigest()[:10]
+            except Exception:
+                return ""
         _cache_version = (
             _search_q,
             batch_rate,
             batch_rate_date.isoformat() if hasattr(batch_rate_date, "isoformat") else str(batch_rate_date),
             len(companies),
             st.session_state.get("_batch_de_version", 0),
+            _dict_hash(_mode_all),
+            _dict_hash(_round_all),
+            _dict_hash(_proj_flag_all),
+            _dict_hash(_min_charges_all),
+            _dict_hash(_hidden_all),
+            _dict_hash(_manual_all),
+            _dict_hash(_notes_all),
+            _dict_hash(_rate_all),
+            _dict_hash(_orders_all),
         )
         _DF_CACHE_KEY = "_batch_df_cache"
         _DF_ROWS_CACHE_KEY = "_batch_df_rows_cache"
