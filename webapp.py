@@ -1133,7 +1133,10 @@ def render_batch_billing_ui(
                 _cur_phr  = str(st.session_state.get(f"_batch_phrase_{_nc}", _saved_phrase))
                 if _cur_phr not in RATE_PHRASES:
                     _cur_phr = DEFAULT_RATE_PHRASE
-                _cur_rate = float(st.session_state.get(f"_batch_rate_{_nc}", batch_rate))
+                # batch_rate=None(빈칸) 일 때 회사별 widget 키도 sync 안 됐을 수
+                # 있어 둘 다 None 대비. 0 으로 fallback (data_editor 표시는 0.00).
+                _rate_raw = st.session_state.get(f"_batch_rate_{_nc}", batch_rate)
+                _cur_rate = float(_rate_raw) if _rate_raw is not None else 0.0
                 _df_rows.append({
                     "_nc":   _nc,
                     "선택":   _cur_chk,
@@ -1240,10 +1243,14 @@ def render_batch_billing_ui(
             unsafe_allow_html=True,
         )
 
+        # batch_rate=None(빈칸) 일 때 형식화 폭발 방지 — 안내 문구만 다르게 표시.
+        _rate_disp = (
+            f"₩{batch_rate:,.2f}" if batch_rate is not None else "환율 미입력"
+        )
         st.caption(
             f"💡 환율 날짜 기본값: 전월 마지막 은행 영업일 "
             f"**({_default_prev_bd.strftime('%Y.%m.%d')})** "
-            f"· 일괄 입력값(₩{batch_rate:,.2f} · {_batch_rate_date_str}) 변경 시 "
+            f"· 일괄 입력값({_rate_disp} · {_batch_rate_date_str}) 변경 시 "
             "모든 회사 환율/날짜가 자동 동기화됩니다."
         )
 
