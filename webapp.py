@@ -43,6 +43,7 @@ SAVED_SUBTOTAL_ROUND_FILE  = Path(__file__).parent / "billing" / "saved_subtotal
 SAVED_HIDDEN_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_hidden_skus.json"
 SAVED_MANUAL_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_manual_skus.json"
 SAVED_BATCH_SELECTION_FILE = Path(__file__).parent / "billing" / "saved_batch_selection.json"
+SAVED_COMPANY_NOTES_FILE   = Path(__file__).parent / "billing" / "saved_company_notes.json"
 
 # GitHub 원격 경로 (Streamlit 휴면 후에도 단가표가 유지되도록 repo 에 백업/복원).
 # `.streamlit/secrets.toml` 의 [github] 설정이 없으면 조용히 no-op.
@@ -114,6 +115,34 @@ def _load_saved_orders() -> dict[str, list[str]]:
         for acc, order in data.items()
         if isinstance(order, list)
     }
+
+
+def _load_company_notes() -> dict[str, str]:
+    """회사별 메모(비고) 저장값 로드. 일괄 정산 화면 표시 전용 (엑셀 출력 무관)."""
+    if not SAVED_COMPANY_NOTES_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SAVED_COMPANY_NOTES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return {
+        str(k): str(v) for k, v in (data or {}).items()
+        if isinstance(k, str)
+    }
+
+
+def _save_company_note_for_account(account: str, note: str) -> None:
+    data = _load_company_notes()
+    _v = (note or "").strip()
+    if _v:
+        data[account] = _v
+    else:
+        # 빈 입력이면 키 제거 → 다음 로드 시 깨끗.
+        data.pop(account, None)
+    SAVED_COMPANY_NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_COMPANY_NOTES_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _save_order_for_account(account: str, order: list[str]) -> None:
@@ -930,6 +959,7 @@ def render_batch_billing_ui(
     _proj_flag_all   = _load_include_project_flags()
     _rate_all        = _load_rate_labels()
     _min_charges_all = _load_min_charges()
+    _notes_all       = _load_company_notes()
 
     # 정규화 키 dict precompute — _lookup_account 의 O(N) 키 순회를 O(1) 로 변경.
     def _norm_dict(d: dict) -> dict:
@@ -941,6 +971,7 @@ def render_batch_billing_ui(
     _proj_flag_norm = _norm_dict(_proj_flag_all)
     _rate_norm      = _norm_dict(_rate_all)
     _min_norm       = _norm_dict(_min_charges_all)
+    _notes_norm     = _norm_dict(_notes_all)
 
     def _fast_lookup(exact_d, norm_d, c, norm_c):
         if c in exact_d:
@@ -1186,6 +1217,12 @@ def render_batch_billing_ui(
                 # 있어 둘 다 None 대비. 0 으로 fallback (data_editor 표시는 0.00).
                 _rate_raw = st.session_state.get(f"_batch_rate_{_nc}", batch_rate)
                 _cur_rate = float(_rate_raw) if _rate_raw is not None else 0.0
+                _cur_note = str(
+                    st.session_state.get(
+                        f"_batch_note_{_nc}",
+                        _fast_lookup(_notes_all, _notes_norm, c, _nc) or "",
+                    ) or ""
+                )
                 _df_rows.append({
                     "_nc":      _nc,
                     "_company": c,        # 표기 prefix 제거 전 원본 회사명 (영구저장 키)
@@ -1196,6 +1233,7 @@ def render_batch_billing_ui(
                     "기준일":     _cur_date,
                     "환율종류":   _cur_phr,
                     "환율값":     _cur_rate,
+                    "비고":      _cur_note,
                 })
             _df = pd.DataFrame(_df_rows)
             st.session_state[_DF_CACHE_KEY] = _df
@@ -1241,6 +1279,10 @@ def render_batch_billing_ui(
                     "환율값", width="small",
                     min_value=0.0, step=0.01, format="%.2f",
                 ),
+                "비고": st.column_config.TextColumn(
+                    "비고", width="large",
+                    help="회사별 메모 (자유 입력). 표시 전용 — 엑셀 출력엔 영향 없음.",
+                ),
             },
             # 전체 행 펼침 — height = 행수 × 35 + 헤더 40 + 여유 20.
             # 검색으로 행 수가 줄어들면 자연스럽게 더 작아짐. 브라우저 스크롤로 이동.
@@ -1282,6 +1324,10 @@ def render_batch_billing_ui(
                     )
                 except (TypeError, ValueError):
                     st.session_state[f"_batch_rate_{_nc}"] = float(batch_rate or 0)
+            if "비고" in _changes_dict:
+                _note_v = str(_changes_dict["비고"] or "").strip()
+                st.session_state[f"_batch_note_{_nc}"] = _note_v
+                _save_company_note_for_account(_orig_company, _note_v)
 
         # 편집된 회사별 환율 표기(은행/문구) 영구 저장 — 다음 접속 시 복원.
         # 환율 값/기준일은 일괄 입력값을 우선시하므로 saved_rate_label 에는
