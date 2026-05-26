@@ -339,8 +339,9 @@ def _format_billing_timings_line(company: str, timings: dict) -> str:
 
 def _format_eta_seconds(seconds: float) -> str:
     """남은 시간 사람용 포맷.
-    60초 미만: '약 N초'
-    60초 이상: '약 N분 N초'
+    60초 미만:        '약 N초'
+    1분 이상 5분 미만: '약 N분 N초'   (5분 미만은 초도 의미 있음)
+    5분 이상:         '약 N분'        (5분+ 는 초 단위 의미 약함)
     """
     if seconds is None or seconds <= 0:
         return "곧 완료"
@@ -348,7 +349,7 @@ def _format_eta_seconds(seconds: float) -> str:
     if _s < 60:
         return f"약 {_s}초"
     _m, _r = divmod(_s, 60)
-    if _r == 0:
+    if _m >= 5 or _r == 0:
         return f"약 {_m}분"
     return f"약 {_m}분 {_r}초"
 
@@ -376,7 +377,7 @@ def _render_batch_overlay(
     if finished > 0 and total > finished and not done:
         _avg = elapsed / finished
         _eta = _format_eta_seconds(_avg * (total - finished))
-        _meta = f"평균 {_avg:.1f}초/사 · 남은 {_eta}"
+        _meta = f"남은 시간 {_eta}"
     else:
         _meta = "&nbsp;"
     # company 안전 escape — < > & 만 처리해도 충분 (단순 텍스트)
