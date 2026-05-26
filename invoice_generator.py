@@ -1257,6 +1257,92 @@ def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 인보이스 엑셀 자체 정합성 검사
+# 외부 업체로 발송되는 파일이라 잘못된 수식이 박혀 청구금액이 0 으로 나오는
+# 사고를 막기 위한 가벼운 사후 검사. 발견된 경고 메시지 리스트를 반환한다.
+#   - "*0" / "*0.0" 같은 곱하기-0 패턴 → 청구액 0 사고
+#   - 빈 SUM() / #REF! / #NAME? → 수식 손상
+#   - 청구금액 셀이 아예 비어 있거나 0 으로 적힌 경우
+# 비용 발생 SKU 가 실제로 있는데 0 으로 나오면 경고. 데이터 자체가 0 (전액
+# 무료 제공) 인 회사는 정상이라 경고하지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+def validate_invoice_excel(
+    excel_bytes: bytes,
+    *,
+    line_items=None,
+    company_name: str = "",
+) -> list[str]:
+    """엑셀 출력의 자체 정합성 검사. 경고 메시지 list 반환 (빈 list = 통과)."""
+    warnings: list[str] = []
+    if not excel_bytes:
+        return warnings
+    try:
+        wb = load_workbook(io.BytesIO(excel_bytes), data_only=False)
+    except Exception as e:
+        warnings.append(f"엑셀 재로딩 실패: {type(e).__name__}: {e}")
+        return warnings
+
+    # (a) 모든 시트 모든 셀에서 위험 수식 패턴 스캔
+    bad_patterns = [
+        ("*0,",   "0 곱하기"),
+        ("*0.0,", "0.0 곱하기"),
+        ("*0)",   "0 곱하기"),
+        ("*0.0)", "0.0 곱하기"),
+        ("SUM()", "빈 SUM"),
+        ("#REF!", "참조 오류(#REF!)"),
+        ("#NAME?", "함수명 오류(#NAME?)"),
+    ]
+    for sn in wb.sheetnames:
+        if sn == "GMP Price List":
+            continue   # 원본 시트 복제본은 검사 대상 외
+        ws = wb[sn]
+        for row in ws.iter_rows(values_only=False):
+            for cell in row:
+                v = cell.value
+                if not isinstance(v, str) or not v.startswith("="):
+                    continue
+                for pat, desc in bad_patterns:
+                    if pat in v:
+                        warnings.append(
+                            f"[{sn}!{cell.coordinate}] {desc} 발견: {v}"
+                        )
+                        break   # 같은 셀에서 여러 패턴 중복 보고 방지
+
+    # (b) Python 측이 청구액 > 0 을 기대하는데 엑셀의 SKU 행 자체가 누락된 경우
+    if line_items:
+        expected = {
+            (getattr(it, "sku_name", "") or "").strip()
+            for it in line_items
+            if int(getattr(it, "total_usage", 0) or 0) > 0
+            or int(getattr(it, "final_krw", 0) or 0) > 0
+        }
+        expected.discard("")
+        # Invoice 시트에서 B/C 열(SKU 라벨) 의 텍스트를 모은다.
+        invoice_sn = next(
+            (s for s in wb.sheetnames if s.lower().startswith("invoice")),
+            None,
+        )
+        if invoice_sn and expected:
+            ws = wb[invoice_sn]
+            found = set()
+            for row in ws.iter_rows(min_col=2, max_col=4, values_only=True):
+                for v in row:
+                    if isinstance(v, str):
+                        _t = v.strip()
+                        if _t in expected:
+                            found.add(_t)
+            missing = expected - found
+            if missing:
+                _miss = ", ".join(sorted(missing)[:5])
+                _more = "" if len(missing) <= 5 else f" 외 {len(missing)-5}개"
+                warnings.append(
+                    f"[Invoice] Python 측 SKU {len(missing)}개가 엑셀에 누락: {_miss}{_more}"
+                )
+
+    return warnings
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI 진입점
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

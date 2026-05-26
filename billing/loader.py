@@ -15,7 +15,10 @@ _UNLIMITED_CAP = 999_999_999
 # 본 헬퍼를 통해 워크북을 받으므로 일괄 정산 시 N회 반복 파싱이 1회로 줄어든다.
 # 워크북은 read-only 로만 사용되므로 공유 안전.
 # ─────────────────────────────────────────────────────────────────────────────
-_PL_WB_CACHE: dict = {}
+from collections import OrderedDict as _OrderedDict
+_PL_WB_CACHE: "_OrderedDict" = _OrderedDict()
+# 최근 N개만 보관 (가격표가 USD/KRW 두 파일 정도라 4면 여유). 초과 시 가장 오래된 항목 제거.
+_PL_WB_CACHE_MAX = 4
 
 
 def _price_list_key(price_list_file):
@@ -51,6 +54,7 @@ def load_price_list_workbook(price_list_file):
     from openpyxl import load_workbook
     _key = _price_list_key(price_list_file)
     if _key is not None and _key in _PL_WB_CACHE:
+        _PL_WB_CACHE.move_to_end(_key)   # LRU: 최근 사용으로 갱신
         return _PL_WB_CACHE[_key]
     if hasattr(price_list_file, "read"):
         price_list_file.seek(0)
@@ -61,6 +65,9 @@ def load_price_list_workbook(price_list_file):
         _wb = load_workbook(str(price_list_file), data_only=True)
     if _key is not None:
         _PL_WB_CACHE[_key] = _wb
+        # 캐시 크기 초과 시 가장 오래된 항목부터 제거 → 메모리 무한 누적 방지.
+        while len(_PL_WB_CACHE) > _PL_WB_CACHE_MAX:
+            _PL_WB_CACHE.popitem(last=False)
     return _wb
 
 

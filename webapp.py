@@ -26,7 +26,7 @@ from billing.loader import (
     load_usage_rows,
 )
 from billing.preprocessor import extract_company_names, preprocess_usage_file
-from invoice_generator import generate_formatted_invoice
+from invoice_generator import generate_formatted_invoice, validate_invoice_excel
 import github_storage
 
 # ── 경로 상수 ─────────────────────────────────────────────────────────────────
@@ -651,6 +651,24 @@ def _run_batch_single_billing(
             print(f"{_tag} 7) generate_formatted_invoice: {_t_excel:.3f}초 (bytes={len(_excel_bytes) if _excel_bytes else 0})")
             _timings["excel"] = _t_excel
 
+        # ── 7-1) 엑셀 자체 정합성 검사 ─────────────────────────────
+        # *0 수식 박힘 같은 사고를 외부 발송 전에 차단하기 위한 사후 검사.
+        # 결과 dict 의 validation_warnings 로 호출자가 UI 표시/차단 결정.
+        _val_warns: list[str] = []
+        if _excel_bytes:
+            try:
+                _val_warns = validate_invoice_excel(
+                    _excel_bytes,
+                    line_items=_line_items_out,
+                    company_name=selected_company or "전체",
+                )
+            except Exception as _ve:
+                _val_warns = [f"검사 함수 자체 오류: {type(_ve).__name__}: {_ve}"]
+            if _val_warns:
+                print(f"{_tag} ⚠ 정합성 경고 {len(_val_warns)}건:")
+                for _w in _val_warns[:3]:
+                    print(f"   - {_w}")
+
         # ── 8) PDF 변환 ─────────────────────────────────────────
         _pdf_bytes = None
         _pdf_error = None
@@ -678,6 +696,7 @@ def _run_batch_single_billing(
             "pdf_error": _pdf_error, "paid_in_hidden": _paid_in_hidden,
             "missing_skus": _missing_skus,
             "timings": _timings,
+            "validation_warnings": _val_warns,
         }
     except Exception as e:
         import traceback as _tb
@@ -688,6 +707,7 @@ def _run_batch_single_billing(
             "excel_bytes": None, "pdf_bytes": None, "pdf_error": None,
             "paid_in_hidden": [], "missing_skus": [],
             "timings": _timings,
+            "validation_warnings": [],
         }
 
 
@@ -1297,18 +1317,22 @@ def render_batch_billing_ui(
             if dl_pdf and res.get("pdf_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.pdf", res["pdf_bytes"])
 
+            _val_w = res.get("validation_warnings") or []
             results.append({
                 "company": c,
                 "status": "ok" if not res.get("paid_in_hidden") else "ok_with_paid",
                 "paid_in_hidden": res.get("paid_in_hidden") or [],
                 "pdf_error": res.get("pdf_error"),
                 "policy_applied": policy_applied,
+                "validation_warnings": _val_w,
             })
             _hint = ""
             if res.get("paid_in_hidden") and not policy_applied:
                 _hint = f" · ⚠ 비용발생 {len(res['paid_in_hidden'])}개"
             elif policy_applied == "moved":
                 _hint = f" · 🔁 노출이동·재정산 ({len(_paid_names)}개)"
+            if _val_w:
+                _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
             _t_company_elapsed = _t_perf2.time() - _t_company_start
             print(f"[정산루프] ({idx}/{total}) {c} 완료: {_t_company_elapsed:.3f}초")
@@ -1316,6 +1340,11 @@ def render_batch_billing_ui(
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
             )
+            if _val_w:
+                _timings_lines.append(
+                    f"  🚨 **{c}** 정합성 경고: " + " / ".join(_val_w[:2])
+                    + (f" (외 {len(_val_w)-2}건)" if len(_val_w) > 2 else "")
+                )
             _timings_ph.markdown("  \n".join(_timings_lines))
             _finished_count += 1
 
@@ -1344,6 +1373,22 @@ def render_batch_billing_ui(
         st.error(f"❌ 정산 실패 {n_err}개사 — 아래 로그 확인")
     if n_skip > 0:
         st.info(f"⏭ 건너뛴 회사 {n_skip}개사 (정책=건너뛰기)")
+
+    # 정합성 경고 회사 — 외부 발송 전 사용자 확인 필요. 결과 요약 직후 상단 노출.
+    _val_alerts = [r for r in results if r.get("validation_warnings")]
+    if _val_alerts:
+        st.error(
+            f"🚨 **엑셀 정합성 경고가 발생한 회사 {len(_val_alerts)}개** — "
+            "외부 발송 전 반드시 확인하세요."
+        )
+        with st.expander("🚨 정합성 경고 상세", expanded=True):
+            for r in _val_alerts:
+                st.markdown(f"**{r['company']}**")
+                for _w in r["validation_warnings"][:10]:
+                    st.markdown(f"- {_w}")
+                _rem = len(r["validation_warnings"]) - 10
+                if _rem > 0:
+                    st.markdown(f"- … 외 {_rem}건")
 
     with st.expander("📋 회사별 정산 로그", expanded=False):
         for ln in log_lines:
@@ -4517,6 +4562,21 @@ if True:
                         force_keep_skus      = _manual_keep_set or None,
                     )
 
+                    # 엑셀 자체 정합성 검사 (단일 정산용) — 결과는 _result_dict
+                    # 에 동봉하고 결과 영역에서 빨간 박스로 노출.
+                    _val_warns_single: list[str] = []
+                    if _excel_bytes:
+                        try:
+                            _val_warns_single = validate_invoice_excel(
+                                _excel_bytes,
+                                line_items=_line_items_out,
+                                company_name=selected_company or "전체",
+                            )
+                        except Exception as _ve:
+                            _val_warns_single = [f"검사 함수 오류: {type(_ve).__name__}: {_ve}"]
+                        if _val_warns_single:
+                            print(f"[정산] {selected_company} ⚠ 정합성 경고 {len(_val_warns_single)}건")
+
                     # PDF 변환 (체크된 경우만)
                     _pdf_bytes = None
                     _pdf_error = None
@@ -4553,6 +4613,7 @@ if True:
                         "pdf_filename":    _fname_pdf,
                         "pdf_error":       _pdf_error,
                         "missing_skus":    _missing_skus,
+                        "validation_warnings": _val_warns_single,
                     }
                     # 자동 다운로드용 키 — 같은 결과를 재 다운로드하지 않도록
                     _auto_dl_key_value = (
@@ -4695,6 +4756,18 @@ if True:
             _fname_xlsx  = result.get("excel_filename")
             _fname_pdf   = result.get("pdf_filename")
             _pdf_error   = result.get("pdf_error")
+
+            # 정합성 경고 — 외부 발송 전 사용자가 반드시 확인하도록 빨간 박스로 노출
+            _val_w = result.get("validation_warnings") or []
+            if _val_w:
+                st.error(
+                    f"🚨 **엑셀 정합성 경고 {len(_val_w)}건** — 외부 발송 전 확인하세요."
+                )
+                with st.expander("🚨 정합성 경고 상세", expanded=True):
+                    for _w in _val_w[:15]:
+                        st.markdown(f"- {_w}")
+                    if len(_val_w) > 15:
+                        st.markdown(f"- … 외 {len(_val_w)-15}건")
 
             if _pdf_error:
                 st.warning(f"⚠ {_pdf_error}")
@@ -5149,23 +5222,32 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
             if dl_pdf and res.get("pdf_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.pdf", res["pdf_bytes"])
 
+            _val_w = res.get("validation_warnings") or []
             results.append({
                 "company": c,
                 "status": "ok" if not res.get("paid_in_hidden") else "ok_with_paid",
                 "paid_in_hidden": res.get("paid_in_hidden") or [],
                 "pdf_error": res.get("pdf_error"),
                 "policy_applied": policy_applied,
+                "validation_warnings": _val_w,
             })
             _hint = ""
             if res.get("paid_in_hidden") and not policy_applied:
                 _hint = f" · ⚠ 비용발생 {len(res['paid_in_hidden'])}개"
             elif policy_applied == "moved":
                 _hint = f" · 🔁 노출이동·재정산 ({len(_paid_names)}개)"
+            if _val_w:
+                _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
             # UI: 회사별 단계 소요시간 한 줄 추가 → progress bar 아래 실시간 갱신.
             _timings_lines.append(
                 _format_billing_timings_line(c, res.get("timings") or {})
             )
+            if _val_w:
+                _timings_lines.append(
+                    f"  🚨 **{c}** 정합성 경고: " + " / ".join(_val_w[:2])
+                    + (f" (외 {len(_val_w)-2}건)" if len(_val_w) > 2 else "")
+                )
             _timings_ph.markdown("  \n".join(_timings_lines))
             _finished_count += 1
 
@@ -5194,6 +5276,22 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
         st.error(f"❌ 정산 실패 {n_err}개사 — 아래 로그 확인")
     if n_skip > 0:
         st.info(f"⏭ 건너뛴 회사 {n_skip}개사 (정책=건너뛰기)")
+
+    # 정합성 경고 — 외부 발송 전 사용자 확인 필요
+    _val_alerts = [r for r in results if r.get("validation_warnings")]
+    if _val_alerts:
+        st.error(
+            f"🚨 **엑셀 정합성 경고가 발생한 회사 {len(_val_alerts)}개** — "
+            "외부 발송 전 반드시 확인하세요."
+        )
+        with st.expander("🚨 정합성 경고 상세", expanded=True):
+            for r in _val_alerts:
+                st.markdown(f"**{r['company']}**")
+                for _w in r["validation_warnings"][:10]:
+                    st.markdown(f"- {_w}")
+                _rem = len(r["validation_warnings"]) - 10
+                if _rem > 0:
+                    st.markdown(f"- … 외 {_rem}건")
 
     # 회사별 로그
     with st.expander("📋 회사별 정산 로그", expanded=False):
