@@ -45,6 +45,24 @@ SAVED_MANUAL_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_manual_s
 SAVED_BATCH_SELECTION_FILE = Path(__file__).parent / "billing" / "saved_batch_selection.json"
 SAVED_COMPANY_NOTES_FILE   = Path(__file__).parent / "billing" / "saved_company_notes.json"
 
+# 일괄 정산 "⭐ 즐겨찾기" 버튼 클릭 시 체크되는 회사 명단 (임시 하드코딩).
+# 검색 무관 전체 적용. 1인 사용 환경 가정으로 별도 JSON 저장 없이 코드에 박음.
+# 명단 변경 필요 시 이 리스트만 수정. _norm_account_key 정규화로 매칭하므로
+# 대소문자/공백/하이픈 차이는 자동 흡수.
+_BATCH_FAVORITE_COMPANIES: list[str] = [
+    "amorepacific", "atomy", "Bespinglobal-Myrealtrip", "Bespinglobal-Socar",
+    "BespinGlobal-TeamO2", "Bespinglobal-Vanpl", "Beyless - Monitoring System",
+    "coupang", "dogtra", "Ground K", "han-pass", "hanatour", "hankookn",
+    "Hecto Innovation", "hyundai-autolink", "hyundaicard-universe", "jch",
+    "kakao", "kakao-mobility", "kopri", "koreanair", "lg-dmst", "LG-MCS",
+    "lg-uplus", "lotte-card", "megazonesoft-yanolja", "mofa-callcenter",
+    "newbalance", "pantos", "pittasoft", "rememberapp", "s1",
+    "Samsung Wallet", "samsung-find", "Samsung-Logitech", "samsung-m-gspn",
+    "Samsung-NowBrief", "samsung-store", "samsung-visitin",
+    "smartthings-find", "SoftEN Corp.", "StudioG", "Timing Golf",
+    "triphos", "verygoodtour", "webtour",
+]
+
 # GitHub 원격 경로 (Streamlit 휴면 후에도 단가표가 유지되도록 repo 에 백업/복원).
 # `.streamlit/secrets.toml` 의 [github] 설정이 없으면 조용히 no-op.
 _PRICE_LIST_REMOTES = {
@@ -1291,10 +1309,41 @@ def render_batch_billing_ui(
             _df = st.session_state[_DF_CACHE_KEY]
             _df_rows = st.session_state[_DF_ROWS_CACHE_KEY]
 
-        # 카운트 placeholder — data_editor 호출 후 반환값으로 갱신.
-        # 깜빡임 회피 조건: (a) data_editor 의 input DataFrame 캐싱(_df 동일
-        # 객체 재사용) (b) key 고정 (c) column_config/height 동일 — 모두 충족.
-        _cnt_ph = st.empty()
+        # 카운트 placeholder + 일괄 토글 버튼 3개 — 같은 줄 배치.
+        # 검색 무관 전체 적용 (사용자 의도: 1인 사용 + 사고 방지).
+        _cnt_col, _bt_all, _bt_none, _bt_fav = st.columns([4, 1, 1, 1])
+        with _cnt_col:
+            _cnt_ph = st.empty()
+        def _bulk_set_checks(check_value_fn):
+            """모든 companies 의 체크 상태 일괄 변경 + 캐시 무효화 + rerun."""
+            for _cc in companies:
+                _ncc = _norm_of.get(_cc) or _norm_account_key(_cc)
+                st.session_state[f"_batch_chk_{_ncc}"] = bool(check_value_fn(_cc, _ncc))
+            st.session_state.pop(_DF_VER_KEY, None)
+            st.session_state["_batch_de_version"] = (
+                st.session_state.get("_batch_de_version", 0) + 1
+            )
+            st.rerun()
+        with _bt_all:
+            if st.button("✅ 전체선택", key="_batch_btn_all",
+                         use_container_width=True,
+                         help="검색과 무관하게 모든 회사를 체크합니다."):
+                _bulk_set_checks(lambda _c, _nc: True)
+        with _bt_none:
+            if st.button("⬜ 전체해제", key="_batch_btn_none",
+                         use_container_width=True,
+                         help="검색과 무관하게 모든 회사를 해제합니다."):
+                _bulk_set_checks(lambda _c, _nc: False)
+        with _bt_fav:
+            _fav_exact = set(_BATCH_FAVORITE_COMPANIES)
+            _fav_norm  = {_norm_account_key(x) for x in _BATCH_FAVORITE_COMPANIES}
+            if st.button(f"⭐ 즐겨찾기 ({len(_BATCH_FAVORITE_COMPANIES)})",
+                         key="_batch_btn_fav",
+                         use_container_width=True,
+                         help="즐겨찾기 회사들만 체크. 나머지는 모두 해제."):
+                _bulk_set_checks(
+                    lambda _c, _nc: (_c in _fav_exact) or (_nc in _fav_norm)
+                )
 
         # data_editor — 셀 편집 시 이 fragment 만 rerun.
         _de_key = f"_batch_de_v{st.session_state.get('_batch_de_version', 0)}"
