@@ -50,7 +50,7 @@
   },
   "hankookn": {
     "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "phrase": "최종 매매기준율",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
@@ -92,7 +92,7 @@
   },
   "Samsung-Logitech": {
     "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "phrase": "최초 매매기준율",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
@@ -873,5 +873,12 @@
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
+  },
+  "lg.com": {
+    "bank": "KEB하나은행",
+    "phrase": "최초고시 매매율 기준",
+    "extra": "",
+    "date": null,
+    "rate": null
   }
 }
