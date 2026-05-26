@@ -1100,9 +1100,10 @@ def render_batch_billing_ui(
             _visible_companies = list(companies)
 
         # DataFrame 캐싱 — 매 rerun 새 객체 회피.
+        # batch_rate 가 None(빈칸) 일 수 있어 float 강제 변환 불필요.
         _cache_version = (
             _search_q,
-            float(batch_rate),
+            batch_rate,
             batch_rate_date.isoformat() if hasattr(batch_rate_date, "isoformat") else str(batch_rate_date),
             len(companies),
             st.session_state.get("_batch_de_version", 0),
@@ -1221,7 +1222,7 @@ def render_batch_billing_ui(
                         _changes_dict["환율값"] or 0
                     )
                 except (TypeError, ValueError):
-                    st.session_state[f"_batch_rate_{_nc}"] = float(batch_rate)
+                    st.session_state[f"_batch_rate_{_nc}"] = float(batch_rate or 0)
 
         # 카운트 갱신 — data_editor 반환 DataFrame 의 "선택" 컬럼 sum.
         # placeholder 만 갱신하므로 data_editor 재마운트 없음 (DF 캐싱 + key 고정).
@@ -5306,7 +5307,7 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                 tmp_input_path=tmp_input_path,
                 price_list_file=price_list_file,
                 currency=currency,
-                exchange_rate=float(batch_rate),
+                exchange_rate=float(batch_rate or 0),
                 margin_rate=1.0,
                 rate_date_str=_batch_rate_date_str,
                 billing_mode=_mode,
@@ -5354,7 +5355,7 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
                         tmp_input_path=tmp_input_path,
                         price_list_file=price_list_file,
                         currency=currency,
-                        exchange_rate=float(batch_rate),
+                        exchange_rate=float(batch_rate or 0),
                         margin_rate=1.0,
                         rate_date_str=_batch_rate_date_str,
                         billing_mode=_mode,
