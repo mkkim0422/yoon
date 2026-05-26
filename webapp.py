@@ -1159,14 +1159,15 @@ def render_batch_billing_ui(
                 _rate_raw = st.session_state.get(f"_batch_rate_{_nc}", batch_rate)
                 _cur_rate = float(_rate_raw) if _rate_raw is not None else 0.0
                 _df_rows.append({
-                    "_nc":   _nc,
-                    "선택":   _cur_chk,
-                    "회사명":  (f"🆕 {c}" if _is_new else c),
-                    "메타":   _summary(c),
-                    "은행":   _cur_bank,
-                    "기준일":  _cur_date,
-                    "환율종류": _cur_phr,
-                    "환율값":  _cur_rate,
+                    "_nc":      _nc,
+                    "_company": c,        # 표기 prefix 제거 전 원본 회사명 (영구저장 키)
+                    "선택":      _cur_chk,
+                    "회사명":     (f"🆕 {c}" if _is_new else c),
+                    "메타":      _summary(c),
+                    "은행":      _cur_bank,
+                    "기준일":     _cur_date,
+                    "환율종류":   _cur_phr,
+                    "환율값":     _cur_rate,
                 })
             _df = pd.DataFrame(_df_rows)
             st.session_state[_DF_CACHE_KEY] = _df
@@ -1184,7 +1185,7 @@ def render_batch_billing_ui(
         # data_editor — 셀 편집 시 이 fragment 만 rerun.
         _de_key = f"_batch_de_v{st.session_state.get('_batch_de_version', 0)}"
         _edited_df = st.data_editor(
-            _df.drop(columns=["_nc"]),
+            _df.drop(columns=["_nc", "_company"]),
             key=_de_key,
             hide_index=True,
             use_container_width=True,
@@ -1219,8 +1220,11 @@ def render_batch_billing_ui(
         )
 
         # 편집 델타 → session_state 동기화 (호환 키 유지).
+        # 은행/환율종류 편집 시 saved_rate_label.json 으로 즉시 영구 저장 →
+        # 다음 세션 진입 시 자동 복원. (체크 상태처럼 정산 클릭과 무관하게 보존)
         _de_changes = st.session_state.get(_de_key, {}) or {}
         _edited_rows = _de_changes.get("edited_rows", {}) or {}
+        _rate_label_dirty: set[str] = set()   # 영구저장이 필요한 회사명 모음
         for _row_idx, _changes_dict in _edited_rows.items():
             try:
                 _row_idx = int(_row_idx)
@@ -1229,17 +1233,20 @@ def render_batch_billing_ui(
             if not (0 <= _row_idx < len(_df_rows)):
                 continue
             _nc = _df_rows[_row_idx]["_nc"]
+            _orig_company = _df_rows[_row_idx]["_company"]
             if "선택" in _changes_dict:
                 st.session_state[f"_batch_chk_{_nc}"] = bool(_changes_dict["선택"])
             if "은행" in _changes_dict:
                 _v = str(_changes_dict["은행"] or "").strip() or DEFAULT_BANK_NAME
                 st.session_state[f"_batch_bank_{_nc}"] = _v
+                _rate_label_dirty.add(_orig_company)
             if "기준일" in _changes_dict:
                 st.session_state[f"_batch_date_{_nc}"] = _changes_dict["기준일"]
             if "환율종류" in _changes_dict:
                 st.session_state[f"_batch_phrase_{_nc}"] = str(
                     _changes_dict["환율종류"] or DEFAULT_RATE_PHRASE
                 )
+                _rate_label_dirty.add(_orig_company)
             if "환율값" in _changes_dict:
                 try:
                     st.session_state[f"_batch_rate_{_nc}"] = float(
@@ -1247,6 +1254,27 @@ def render_batch_billing_ui(
                     )
                 except (TypeError, ValueError):
                     st.session_state[f"_batch_rate_{_nc}"] = float(batch_rate or 0)
+
+        # 편집된 회사별 환율 표기(은행/문구) 영구 저장 — 다음 접속 시 복원.
+        # 환율 값/기준일은 일괄 입력값을 우선시하므로 saved_rate_label 에는
+        # 안 넣고 session_state 만 유지 (기존 동작 유지).
+        if _rate_label_dirty:
+            for _c in _rate_label_dirty:
+                _nc_c = _norm_account_key(_c)
+                _bank_c = st.session_state.get(
+                    f"_batch_bank_{_nc_c}", DEFAULT_BANK_NAME,
+                ) or DEFAULT_BANK_NAME
+                _phr_c = st.session_state.get(
+                    f"_batch_phrase_{_nc_c}", DEFAULT_RATE_PHRASE,
+                ) or DEFAULT_RATE_PHRASE
+                _existing = _load_rate_labels().get(_c) or {}
+                _save_rate_label_for_account(
+                    _c,
+                    bank=_bank_c, phrase=_phr_c,
+                    extra=_existing.get("extra", ""),
+                    date_str=_existing.get("date"),
+                    rate=None, preserve_rate_if_none=True,
+                )
 
         # 카운트 갱신 — data_editor 반환 DataFrame 의 "선택" 컬럼 sum.
         # placeholder 만 갱신하므로 data_editor 재마운트 없음 (DF 캐싱 + key 고정).
