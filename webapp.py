@@ -624,6 +624,7 @@ def _run_batch_single_billing(
     billable_skus: set | None,
     dl_xlsx: bool,
     dl_pdf: bool,
+    pdf_converter=None,
 ) -> dict:
     """한 회사 정산 → result dict.
     반환 키: ok, error, excel_bytes, pdf_bytes, pdf_error, paid_in_hidden,
@@ -894,7 +895,6 @@ def _run_batch_single_billing(
         _pdf_error = None
         if dl_pdf and _excel_bytes:
             _t0 = _t_perf.time()
-            from pdf_export import xlsx_sheet_to_pdf
             if billing_mode == "per_project" and _per_proj_invoices_out:
                 from invoice_generator import _safe_sheet_title
                 _pdf_sheet = _safe_sheet_title(
@@ -902,7 +902,13 @@ def _run_batch_single_billing(
                 )
             else:
                 _pdf_sheet = "Invoice"
-            _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(_excel_bytes, _pdf_sheet)
+            # pdf_converter 가 주어지면 (일괄 정산) 살아있는 Excel 인스턴스 재사용,
+            # 아니면 단일 호출 (회사당 Excel 새로 띄움).
+            if pdf_converter is not None:
+                _pdf_bytes, _pdf_error = pdf_converter.convert(_excel_bytes, _pdf_sheet)
+            else:
+                from pdf_export import xlsx_sheet_to_pdf
+                _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(_excel_bytes, _pdf_sheet)
             _t_pdf = _t_perf.time() - _t0
             print(f"{_tag} 8) xlsx_sheet_to_pdf: {_t_pdf:.3f}초 (bytes={len(_pdf_bytes) if _pdf_bytes else 0})")
             _timings["pdf"] = _t_pdf
@@ -1572,7 +1578,15 @@ def render_batch_billing_ui(
     # alpha=0.3 → 새 데이터 30%, 기존 평균 70% 반영.
     _ema_per_company: float | None = None
     _EMA_ALPHA = 0.3
-    with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
+    # PDF 변환은 Excel COM subprocess 시작/종료가 회사당 11~40초로 가장 큰 병목.
+    # dl_pdf 가 켜진 경우만 BatchExcelPdf 컨텍스트로 Excel 1개를 batch 내내 살려두고
+    # 회사마다 stdin 으로 변환 명령만 전달 → 2번째 호출부터 회사당 2~4초.
+    from pdf_export import BatchExcelPdf as _BatchExcelPdf
+    _pdf_ctx = _BatchExcelPdf() if dl_pdf else None
+    if _pdf_ctx is not None:
+        _pdf_ctx.__enter__()
+    try:
+      with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
             _remaining = (
@@ -1633,6 +1647,7 @@ def render_batch_billing_ui(
                 billable_skus=billable_skus,
                 dl_xlsx=dl_xlsx,
                 dl_pdf=dl_pdf,
+                pdf_converter=_pdf_ctx,
             )
 
             _paid_names = [nm for nm, _ in (res.get("paid_in_hidden") or [])]
@@ -1681,6 +1696,7 @@ def render_batch_billing_ui(
                         billable_skus=billable_skus,
                         dl_xlsx=dl_xlsx,
                         dl_pdf=dl_pdf,
+                        pdf_converter=_pdf_ctx,
                     )
 
             if not res["ok"]:
@@ -1739,6 +1755,13 @@ def render_batch_billing_ui(
         _timings_lines.append(
             f"**전체 완료: {_t_loop_total:.2f}초 ({len(_checked)}개사)**"
         )
+    finally:
+        # BatchExcelPdf 정리 — Excel 인스턴스 종료. 정산 도중 예외나도 반드시 호출.
+        if _pdf_ctx is not None:
+            try:
+                _pdf_ctx.__exit__(None, None, None)
+            except Exception:
+                pass
 
     # 루프 종료 — 오버레이 제거 (결과 영역이 자연스럽게 노출됨)
     overlay_ph.empty()
