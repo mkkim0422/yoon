@@ -1146,14 +1146,12 @@ def _merge_write(ws, r1: int, r2: int, col: int, value,
 # 내부 헬퍼: GMP Price List 시트 복제 (MergedCell 완전 방어)
 # ─────────────────────────────────────────────────────────────────────────────
 def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
-    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제."""
+    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제.
+    src_wb 는 read-only 로만 사용하므로 캐시 워크북 공유 안전.
+    """
     try:
-        if hasattr(price_list_file, "read"):
-            price_list_file.seek(0)
-            raw = price_list_file.read()
-            src_wb = load_workbook(io.BytesIO(raw), data_only=True)
-        else:
-            src_wb = load_workbook(str(price_list_file), data_only=True)
+        from billing.loader import load_price_list_workbook
+        src_wb = load_price_list_workbook(price_list_file)
     except Exception:
         return
 

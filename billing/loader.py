@@ -5,6 +5,69 @@ from billing.models import Sku, SkuTier, UsageRow
 
 _UNLIMITED_CAP = 999_999_999
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Price List 워크북 캐시
+# 같은 파일/객체에 대해 openpyxl 파싱이 반복되지 않도록 캐싱.
+# - 디스크 경로: (mtime_ns, size) 로 자동 무효화
+# - file-like(Streamlit UploadedFile): (id, size) — 새 업로드 시 id 가 바뀌어 무효화
+# - bytes: (len, 헤더 일부 해시) — 동일 바이트면 재사용
+# 호출하는 4개 loader 함수 + invoice_generator._copy_price_list_sheet 모두
+# 본 헬퍼를 통해 워크북을 받으므로 일괄 정산 시 N회 반복 파싱이 1회로 줄어든다.
+# 워크북은 read-only 로만 사용되므로 공유 안전.
+# ─────────────────────────────────────────────────────────────────────────────
+_PL_WB_CACHE: dict = {}
+
+
+def _price_list_key(price_list_file):
+    if price_list_file is None:
+        return None
+    if isinstance(price_list_file, (bytes, bytearray)):
+        _b = bytes(price_list_file)
+        return ("bytes", len(_b), hash(_b[:1024]))
+    if hasattr(price_list_file, "read"):
+        try:
+            _cur = price_list_file.tell()
+            price_list_file.seek(0, 2)
+            _size = price_list_file.tell()
+            price_list_file.seek(_cur)
+            return ("filelike", id(price_list_file), _size)
+        except Exception:
+            return None
+    try:
+        from pathlib import Path as _P
+        _st = _P(str(price_list_file)).stat()
+        return ("path", str(price_list_file), _st.st_mtime_ns, _st.st_size)
+    except OSError:
+        return None
+
+
+def load_price_list_workbook(price_list_file):
+    """Price List 엑셀을 openpyxl Workbook 으로 로드 (캐시 적용).
+
+    같은 파일/객체에 대한 반복 호출은 캐시 hit — openpyxl 파싱을 한 번만 수행.
+    워크북은 read-only 로만 사용해야 한다 (캐시 공유로 인한 부작용 방지).
+    파일 변경 시 (mtime_ns, size) 키가 바뀌어 자동 무효화.
+    """
+    from openpyxl import load_workbook
+    _key = _price_list_key(price_list_file)
+    if _key is not None and _key in _PL_WB_CACHE:
+        return _PL_WB_CACHE[_key]
+    if hasattr(price_list_file, "read"):
+        price_list_file.seek(0)
+        _wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
+    elif isinstance(price_list_file, (bytes, bytearray)):
+        _wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
+    else:
+        _wb = load_workbook(str(price_list_file), data_only=True)
+    if _key is not None:
+        _PL_WB_CACHE[_key] = _wb
+    return _wb
+
+
+def clear_price_list_cache() -> None:
+    """디버그/테스트용 캐시 비우기."""
+    _PL_WB_CACHE.clear()
+
 # 하드코딩 SKU 화이트리스트는 사용하지 않는다.
 # 회사마다 Google Maps Platform 에서 사용하는 제품(SKU) 이 모두 다르므로,
 # "정답지 12개" 같은 고정 리스트로 필터링하면 Ground K 에만 있는
@@ -154,16 +217,8 @@ def detect_price_list_currency(price_list_file) -> str:
     인자: 파일 경로(str | Path) 또는 file-like 객체 또는 bytes.
     반환: 'USD' (기본) 또는 'KRW'.
     """
-    import io
-    from openpyxl import load_workbook
     try:
-        if hasattr(price_list_file, "read"):
-            price_list_file.seek(0)
-            wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
-        elif isinstance(price_list_file, (bytes, bytearray)):
-            wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
-        else:
-            wb = load_workbook(str(price_list_file), data_only=True)
+        wb = load_price_list_workbook(price_list_file)
     except Exception:
         return "USD"
 
@@ -194,16 +249,8 @@ def get_free_caps_from_price_list(price_list_file) -> dict[str, int]:
     무료 제공량 owner 판정 시 master 대신 이 맵을 참조하면 누락 없이 처리
     가능하다.
     """
-    import io
-    from openpyxl import load_workbook
     try:
-        if hasattr(price_list_file, "read"):
-            price_list_file.seek(0)
-            wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
-        elif isinstance(price_list_file, (bytes, bytearray)):
-            wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
-        else:
-            wb = load_workbook(str(price_list_file), data_only=True)
+        wb = load_price_list_workbook(price_list_file)
     except Exception:
         return {}
 
@@ -242,16 +289,8 @@ def get_sku_tiers_from_price_list(price_list_file) -> dict[str, dict]:
     master_data.csv 에 없는 SKU 를 Price List 기반으로 보완해 Python 측
     waterfall 결과가 Excel SUMIF 결과와 일치하도록 하는 용도.
     """
-    import io
-    from openpyxl import load_workbook
     try:
-        if hasattr(price_list_file, "read"):
-            price_list_file.seek(0)
-            wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
-        elif isinstance(price_list_file, (bytes, bytearray)):
-            wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
-        else:
-            wb = load_workbook(str(price_list_file), data_only=True)
+        wb = load_price_list_workbook(price_list_file)
     except Exception:
         return {}
 
@@ -302,16 +341,8 @@ def get_billable_sku_names(price_list_file) -> set[str]:
     하나라도 양수 단가가 있으면 billable SKU로 간주.
     파일을 읽을 수 없으면 빈 set 반환 (= 필터링 없음).
     """
-    import io
-    from openpyxl import load_workbook
     try:
-        if hasattr(price_list_file, "read"):
-            price_list_file.seek(0)
-            wb = load_workbook(io.BytesIO(price_list_file.read()), data_only=True)
-        elif isinstance(price_list_file, (bytes, bytearray)):
-            wb = load_workbook(io.BytesIO(price_list_file), data_only=True)
-        else:
-            wb = load_workbook(str(price_list_file), data_only=True)
+        wb = load_price_list_workbook(price_list_file)
     except Exception:
         return set()
 
