@@ -987,6 +987,34 @@ def render_batch_billing_ui(
                 help="USD 단가표 회사들에만 적용. 변경 시 회사선택 영역의 "
                      "환율도 일괄 갱신됩니다.",
             )
+            # 정산 시작 시 환율 미입력 에러 메시지가 채워질 자리.
+            _batch_rate_error_ph = st.empty()
+            # 사용자가 입력하면 invalid flash 자동 해제.
+            if batch_rate is not None and st.session_state.get("_batch_rate_invalid_flash"):
+                st.session_state.pop("_batch_rate_invalid_flash", None)
+            # flash 가 켜진 채 rerun 됐으면 메시지 + 인풋 포커스/스크롤.
+            if st.session_state.get("_batch_rate_invalid_flash"):
+                _batch_rate_error_ph.markdown(
+                    '<div style="color:#ef4444; font-size:0.85rem; '
+                    'margin-top:-10px; padding-left:4px;">'
+                    '환율을 입력해 주세요</div>',
+                    unsafe_allow_html=True,
+                )
+                st.html("""
+                <script>
+                (function(){
+                  try {
+                    var inp = window.parent.document.querySelector(
+                      '.st-key-_batch_rate_input input'
+                    );
+                    if (inp && !inp.disabled) {
+                      inp.focus();
+                      inp.scrollIntoView({behavior:'smooth', block:'center'});
+                    }
+                  } catch(e) {}
+                })();
+                </script>
+                """)
         with c2:
             batch_rate_date = st.date_input(
                 "환율 날짜",
@@ -1325,9 +1353,10 @@ def render_batch_billing_ui(
             if not (dl_xlsx or dl_pdf):
                 st.warning("다운로드 형식(엑셀/PDF) 을 1개 이상 선택해 주세요.")
                 return
-            # 환율 미입력 차단 — 빨간 테두리로 시각적 안내 + 클릭 시 경고
+            # 환율 미입력 차단 — flash 켜고 rerun → 환율 영역에서 안내+포커스 처리.
             if st.session_state.get("_batch_rate_input") is None:
-                st.warning("환율을 입력해 주세요. (빨간 테두리 표시 영역)")
+                st.session_state["_batch_rate_invalid_flash"] = True
+                st.rerun()
                 return
             st.session_state["_batch_start_trigger"] = True
             st.rerun()  # page rerun — fragment 밖 정산 실행 로직 트리거.
