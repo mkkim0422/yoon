@@ -441,7 +441,7 @@ def _write_invoice_info(ws, company_name: str, billing_month: str,
     _no_border = Border()
 
     for row_num, label, value in info_rows:
-        ws.row_dimensions[row_num].height = 20
+        # 행 높이 = Excel 기본값(15pt) 유지 — 명시 설정 안 함
 
         cell_b = ws.cell(row=row_num, column=C1, value=label)
         cell_b.font      = _font(bold=False, size=10)
@@ -480,13 +480,26 @@ HEADERS = ["API", "Usage", "Free Usage", "Subtotal",
 
 def _write_table_header(ws) -> None:
     ws.row_dimensions[TABLE_HEADER_ROW].height = 22
+    # 헤더에서만 F(할인 구간) + G(수량) 을 가로 병합해 "할인 구간" 하나로 표시.
+    # 데이터 행은 그대로 두 컬럼 유지 (tier 라벨 / 수량).
+    _MERGE_LEFT_IDX, _MERGE_RIGHT_IDX = 4, 5
     for idx, label in enumerate(HEADERS):
+        if idx == _MERGE_RIGHT_IDX:
+            _disp = ""  # 병합 영역의 우측 셀은 값 없이 스타일만
+        elif idx == _MERGE_LEFT_IDX:
+            _disp = "할인 구간"
+        else:
+            _disp = label
         col  = C1 + idx
-        cell = ws.cell(row=TABLE_HEADER_ROW, column=col, value=label)
+        cell = ws.cell(row=TABLE_HEADER_ROW, column=col, value=_disp)
         cell.font      = _font(bold=True, color=C_WHITE, size=10)
         cell.fill      = _fill(C_DARK)
         cell.alignment = _align("center", "center")
         cell.border    = _BORDER_ALL
+    ws.merge_cells(
+        start_row=TABLE_HEADER_ROW, start_column=C1 + _MERGE_LEFT_IDX,
+        end_row=TABLE_HEADER_ROW,   end_column=C1 + _MERGE_RIGHT_IDX,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -542,11 +555,11 @@ def _write_data_rows(ws, line_items: list,
     else:
         _subtotal_round = 0 if is_krw else 2
     # round=0 일 때 USD 표시에서 '.00' 제거 (KRW는 원래 무소수).
-    # 소계뿐 아니라 구간별(tier) 단가·금액도 동일 자리수로 표시.
-    # number_format 만 변경 — 셀 수식/저장값은 그대로라 결과값에 영향 없음.
+    # ⚠ 단가(H 열) 는 자리수 옵션에 영향받지 않는다 — Price List 의 단가 표현은
+    # 통화 기본을 그대로 유지 (USD=소수 2자리, KRW=정수). 자리수 옵션은
+    # amount(소계 + tier 금액) 에만 적용.
     if _subtotal_round == 0:
         _subtotal_fmt    = '"₩"#,##0' if is_krw else '"$"#,##0'
-        _tier_price_fmt  = '"₩"#,##0' if is_krw else '"$"#,##0'
         _tier_amount_fmt = '"₩"#,##0' if is_krw else '"$"#,##0'
 
     curr = DATA_START_ROW
@@ -574,10 +587,11 @@ def _write_data_rows(ws, line_items: list,
         e_ref = f"E{header_row}"
 
         # ── B(SKU명), C(사용량), D(무료-수식), E(소계-수식) — 5행 세로 병합 ─
+        # API명 칸은 소계 행과 동일한 배경(C_SUB) 으로 강조.
         _merge_write(ws, header_row, last_tier_row, _col(0), item.sku_name,
-                     fmt_data="center", wrap=True)
+                     fmt_data="center", wrap=True, bg=C_SUB)
         _merge_write(ws, header_row, last_tier_row, _col(1), int(item.total_usage),
-                     fmt_data="number")
+                     fmt_data="number", h="center")
 
         # Free Usage 수식.
         # - 기본 (account 모드): Price List SUMIF — Price List 의 full cap 반영.
@@ -594,7 +608,7 @@ def _write_data_rows(ws, line_items: list,
 
         subtotal_formula = f"=IF(C{header_row}-D{header_row}>0,C{header_row}-D{header_row},0)"
         _merge_write(ws, header_row, last_tier_row, _col(3), subtotal_formula,
-                     fmt_data="number", num="#,##0")
+                     fmt_data="number", num="#,##0", h="center")
 
         # ── 5개 tier 행: F(라벨), G(수량), H(단가), I(금액) ──
         # billing_mode:
@@ -648,16 +662,20 @@ def _write_data_rows(ws, line_items: list,
             i_formula = f"=G{r}*H{r}/1000"
             _cell_write(ws, r, _col(7), i_formula, h="right", num=_tier_amount_fmt)
 
-        # ── 소계 행 (B:F 병합, G=SUM, I=ROUND(SUM,2)) ────────────────────────
+        # ── 소계 행 ─────────────────────────────────────────────────────────
+        # B:E "소계" 병합, F:G SUM(수량) 병합(헤더 "할인 구간" F:G 와 동일 폭),
+        # H 빈칸, I ROUND(SUM,2). 수량/금액 합계는 우측 정렬.
         curr = subtotal_row
 
-        for c in range(_col(0), _col(4) + 1):
+        # B..G 사전 스타일 (병합 전: 좌측 테두리 유실 방지)
+        for c in range(_col(0), _col(5) + 1):
             ws.cell(row=curr, column=c).fill   = _fill(C_SUB)
             ws.cell(row=curr, column=c).border = _BORDER_ALL
 
+        # B:E 병합 ("소계" 라벨)
         ws.merge_cells(
             start_row=curr, start_column=_col(0),
-            end_row=curr,   end_column=_col(4),
+            end_row=curr,   end_column=_col(3),
         )
         cell = ws.cell(row=curr, column=_col(0), value="소계")
         cell.font      = _font(bold=True)
@@ -665,6 +683,9 @@ def _write_data_rows(ws, line_items: list,
         cell.alignment = _align("center", "center")
         cell.border    = _BORDER_ALL
 
+        # F(할인구간 라벨열) / G(수량열) 은 병합 없이 각각 별개 셀.
+        # F 는 빈칸(스타일만), G 는 SUM(수량) 우측 정렬.
+        _cell_write(ws, curr, _col(4), "", h="center", bold=True, bg=C_SUB)
         _cell_write(ws, curr, _col(5),
                     f"=SUM(G{header_row}:G{last_tier_row})",
                     h="right", num='#,##0;;"-"', bold=True, bg=C_SUB)
@@ -803,8 +824,8 @@ def _write_summary_rows(ws, sku_rows: list[dict], exchange_rate, margin_rate,
     is_last_proj = bool(is_per_proj and per_proj_ctx.get("is_last"))
     # per_project 모드에서는 "청 구 금 액(KRW)" 라벨을 "합        계(KRW)" 로 교체.
     _final_krw_label = "합        계(KRW)" if is_per_proj else "청 구 금 액(KRW)"
-    # per_project 모드 라벨은 상단 합계(USD)/환율과 같은 좌측 정렬. account 모드는 기존 중앙 유지.
-    _final_krw_align = "left" if is_per_proj else "center"
+    # 청구금액(KRW) 라벨은 상단 합계/환율 행과 동일하게 좌측 정렬로 통일.
+    _final_krw_align = "left"
     is_krw = (currency == "KRW")
     _m = float(margin_rate) if margin_rate is not None else 1.0
 
@@ -961,65 +982,108 @@ def _write_vat_note(ws, krw_row: int) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 내부 헬퍼: 하단 tt3 이미지
+# 내부 헬퍼: 하단 명함 영역 (SPH 로고 이미지 + 세로 구분선 + 회사정보 텍스트)
 # ─────────────────────────────────────────────────────────────────────────────
-def _write_bottom_image(ws, start_row: int) -> None:
-    tt3_path = ASSETS_DIR / "tt3.png"
+# GMP_Invoice_Amorepacific.xlsx 레퍼런스 구조를 따른다:
+#   - 좌측: SPH 로고 (로고만 있는 이미지)
+#   - 가운데: 세로 구분선
+#   - 우측: 회사정보 4 줄 텍스트 (셀 값으로 직접 입력)
+_BOTTOM_INFO_TEXT = (
+    "SPH Inc. (www.sphinfo.co.kr)\n"
+    "COO Kyungsoo Yoo\n"
+    "Tel : 010-3266-6272, Email : ksyoo@sphinfo.co.kr\n"
+    "서울시 마포구 마포대로 92, 효성해링턴스퀘어 A동 3층"
+)
 
-    if _HAS_IMAGE and tt3_path.exists():
+
+def _write_bottom_image(ws, start_row: int) -> None:
+    logo_path = ASSETS_DIR / "sph_logo.png"
+    line_path = ASSETS_DIR / "divider_line.png"
+    BLOCK_ROWS    = 4         # 텍스트 4 줄 = 4 행
+    ROW_HEIGHT    = 18        # 한 줄 높이 (pt) → 24 px
+    ROW_PX        = 24        # 18 pt ≈ 24 px
+    LOGO_W_PX     = 160
+    LOGO_H_PX     = 80
+    LOGO_COL_0    = 5         # 0-based col 5 = column F
+    LOGO_COL_OFF  = 36        # F 내부 px 오프셋 — 우측 끝이 H 시작과 일치
+    LOGO_ROW_OFF  = 8
+    # 텍스트: 레퍼런스(GMP_Invoice_Amorepacific.xlsx) 의 H:J 3열 병합 유지.
+    TEXT_COL_1    = C1 + 6    # 1-based col H — 텍스트 시작
+    TEXT_COL_LAST = CN + 1    # 1-based col J — 텍스트 끝
+    # 세로 구분선 (위치·크기 모두 cm/EMU 기준 — 1 cm = 360,000 EMU, 1 px = 9525 EMU)
+    # 굵기: 이전 1 px → 1.2 배 → 1.2 px. EMU 직접 사용해 정확히 1.2 배 유지.
+    LINE_W_EMU       = int(1.2 * 9525)         # 11,430 EMU (≈ 0.032 cm)
+    LINE_W_PX        = round(LINE_W_EMU / 9525)  # line.width 속성용 (개략값)
+    # 높이: 1.43 cm (이전 1.63 에서 양쪽 0.1 cm 줄임)
+    LINE_H_EMU       = int(1.43 * 360_000)     # 514,800 EMU
+    LINE_H_PX        = round(LINE_H_EMU / 9525)  # ≈ 54 px
+    # 4행 블록(BLOCK_ROWS × ROW_PX) 안에서 수직 중앙
+    LINE_ROW_OFF     = (ROW_PX * BLOCK_ROWS - LINE_H_PX) // 2
+    LINE_COL_0       = 7                       # 0-based col 7 = column H
+    # 가로 위치: 이전 -0.58 cm 에서 오른쪽 0.1 cm → -0.48 cm
+    LINE_COL_OFF_EMU = int(-0.48 * 360_000)    # -172,800 EMU (≈ -18 px)
+
+    for i in range(BLOCK_ROWS):
+        ws.row_dimensions[start_row + i].height = ROW_HEIGHT
+    # J 컬럼 폭 — 다른 데이터 컬럼(C-H)과 동일하게 14
+    ws.column_dimensions["J"].width = 14
+
+    # ── 로고 이미지 ────────────────────────────────────────────────────────
+    if _HAS_IMAGE and logo_path.exists():
         from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
         from openpyxl.drawing.xdr import XDRPositiveSize2D
         from openpyxl.utils.units import pixels_to_EMU
 
-        img3 = XLImage(str(tt3_path))
-        orig_w, orig_h = img3.width, img3.height
-        target_w = 400
-        img3_h = int(orig_h * target_w / orig_w) if orig_w else target_w
-        img3.width  = target_w
-        img3.height = img3_h
-        ws.row_dimensions[start_row].height = int(img3_h * 0.75) + 10
-
-        col_widths_px   = [10*7, 32*7, 14*7, 14*7, 14*7, 14*7, 14*7, 14*7, 18*7]
-        table_right_px  = sum(col_widths_px)
-        img_left_px     = table_right_px - target_w
-
-        anchor_col        = 0
-        anchor_col_off_px = 0
-        cumul = 0
-        for i, w in enumerate(col_widths_px):
-            if cumul + w > img_left_px:
-                anchor_col        = i
-                anchor_col_off_px = img_left_px - cumul
-                break
-            cumul += w
-
+        img = XLImage(str(logo_path))
+        img.width  = LOGO_W_PX
+        img.height = LOGO_H_PX
         marker = AnchorMarker(
-            col=anchor_col,
-            colOff=pixels_to_EMU(anchor_col_off_px),
-            row=start_row - 1,
-            rowOff=0,
+            col=LOGO_COL_0, colOff=pixels_to_EMU(LOGO_COL_OFF),
+            row=start_row - 1, rowOff=pixels_to_EMU(LOGO_ROW_OFF),
         )
-        size = XDRPositiveSize2D(pixels_to_EMU(target_w), pixels_to_EMU(img3_h))
-        img3.anchor = OneCellAnchor(_from=marker, ext=size)
-        ws.add_image(img3)
-    else:
-        ws.row_dimensions[start_row].height = 80
-
-        # 병합 전 비앵커 셀 스타일 먼저
-        for c in range(C1 + 1, CN + 1):
-            ws.cell(row=start_row, column=c).fill   = _fill(C_WHITE)
-            ws.cell(row=start_row, column=c).border = Border()
-
-        ws.merge_cells(
-            start_row=start_row, start_column=C1,
-            end_row=start_row,   end_column=CN,
+        size = XDRPositiveSize2D(
+            pixels_to_EMU(LOGO_W_PX), pixels_to_EMU(LOGO_H_PX)
         )
-        cell = ws.cell(row=start_row, column=C1,
-                       value="[tt3: Google Cloud Premier Partner 배지]")
-        cell.font      = _font(size=9, color="888888")
-        cell.fill      = _fill(C_WHITE)
-        cell.alignment = _align("right", "center")
-        cell.border    = Border()
+        img.anchor = OneCellAnchor(_from=marker, ext=size)
+        ws.add_image(img)
+
+    # ── 블록 전체 (cols B..J, BLOCK_ROWS 행) 배경 화이트 + 테두리 초기화 ──
+    for r in range(start_row, start_row + BLOCK_ROWS):
+        for c in range(C1, TEXT_COL_LAST + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.fill   = _fill(C_WHITE)
+            cell.border = Border()
+
+    # ── 회사정보 텍스트: H:J 병합, 4 줄 wrap, Calibri 8pt ───────────────────
+    ws.merge_cells(
+        start_row=start_row,            start_column=TEXT_COL_1,
+        end_row=start_row + BLOCK_ROWS - 1, end_column=TEXT_COL_LAST,
+    )
+    cell = ws.cell(row=start_row, column=TEXT_COL_1, value=_BOTTOM_INFO_TEXT)
+    cell.font      = _font(size=8, color="333333", name="Calibri")
+    cell.fill      = _fill(C_WHITE)
+    cell.alignment = _align("left", "center", wrap=True)
+    cell.border    = Border()
+
+    # ── 로고와 회사정보 사이 세로 구분선 (이미지) ──────────────────────────
+    # 셀 테두리로는 partial-height 라인을 그릴 수 없어 이미지로 처리.
+    # 첫/마지막 행은 ½ 만 표시되도록 LINE_ROW_OFF 만큼 위/아래 여백.
+    if _HAS_IMAGE and line_path.exists():
+        from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+        from openpyxl.drawing.xdr import XDRPositiveSize2D
+        from openpyxl.utils.units import pixels_to_EMU
+
+        line = XLImage(str(line_path))
+        line.width  = LINE_W_PX
+        line.height = LINE_H_PX
+        ln_marker = AnchorMarker(
+            col=LINE_COL_0, colOff=LINE_COL_OFF_EMU,
+            row=start_row - 1, rowOff=pixels_to_EMU(LINE_ROW_OFF),
+        )
+        # 가로 위치/굵기/높이 모두 EMU 직접 사용해 cm 단위 환산 오차 0
+        ln_size = XDRPositiveSize2D(LINE_W_EMU, LINE_H_EMU)
+        line.anchor = OneCellAnchor(_from=ln_marker, ext=ln_size)
+        ws.add_image(line)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

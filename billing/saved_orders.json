@@ -1,6 +1,7 @@
 {
   "coupang": [
     "Dynamic Maps",
+    "Directions",
     "Geocoding",
     "Autocomplete - Per Request",
     "Autocomplete without Places Details - Per Session",
@@ -10,10 +11,24 @@
     "Contact Data",
     "Atmosphere Data",
     "Places - Text Search",
-    "Find Place"
+    "Find Place",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Distance Matrix",
+    "Elevation",
+    "Geolocation",
+    "Maps SDK",
+    "Places - Nearby Search",
+    "Places Photo",
+    "Roads - Nearest Road",
+    "Roads - Route Traveled",
+    "Static Maps",
+    "Static Street View",
+    "Time Zone"
   ],
   "dogtra": [
     "Dynamic Maps",
+    "Directions",
+    "Distance Matrix",
     "Maps SDK",
     "Static Maps",
     "Geocoding"
@@ -21,16 +36,7 @@
   "verygoodtour": [
     "Dynamic Maps",
     "Dynamic Street View",
-    "Static Maps",
-    "Directions",
-    "Places - Nearby Search",
-    "Places - Text Search",
-    "Places Details",
-    "Basic Data",
-    "Atmosphere Data",
-    "Contact Data",
-    "Places Photo",
-    "Geocoding"
+    "Static Maps"
   ],
   "hanatour": [
     "Dynamic Maps",
@@ -53,10 +59,10 @@
     "Places Photo",
     "Geocoding",
     "Queries",
-    "Basic Data",
     "Autocomplete (included with Places Details) - Per Session",
+    "Basic Data",
+    "Geolocation",
     "Maps SDK",
-    "Places API Place Details Essentials (IDs Only)",
     "Places Details - ID Refresh"
   ],
   "amorepacific": [
@@ -65,33 +71,43 @@
     "Places Details",
     "Autocomplete - Per Request",
     "Autocomplete without Places Details - Per Session",
+    "Autocomplete Requests",
+    "Places API Place Details Essentials",
     "Geocoding",
-    "Autocomplete (included with Places Details) - Per Session"
+    "Autocomplete (included with Places Details) - Per Session",
+    "Autocomplete Session Usage"
   ],
   "Bespinglobal-Myrealtrip": [
     "Dynamic Maps",
     "Static Maps",
+    "Distance Matrix",
     "Autocomplete - Per Request",
-    "Autocomplete (included with Places Details) - Per Session",
+    "Autocomplete without Places Details - Per Session",
     "Places Details",
     "Basic Data",
     "Atmosphere Data",
     "Contact Data",
+    "Find Place",
     "Geocoding"
   ],
   "Bespinglobal-Socar": [
-    "Dynamic Maps"
+    "Dynamic Maps",
+    "Autocomplete without Places Details - Per Session",
+    "Geocoding"
   ],
   "BespinGlobal-TeamO2": [
     "Dynamic Maps",
     "Static Maps",
+    "Directions",
     "Autocomplete - Per Request",
     "Places Details",
     "Basic Data",
+    "Atmosphere Data",
     "Geocoding"
   ],
   "Ground K": [
     "Dynamic Maps",
+    "Dynamic Street View",
     "Directions",
     "Directions Advanced",
     "Autocomplete - Per Request",
@@ -101,10 +117,12 @@
     "Basic Data",
     "Atmosphere Data",
     "Contact Data",
+    "Places - Nearby Search",
     "Places - Text Search",
     "Time Zone",
     "Geocoding",
-    "Autocomplete (included with Places Details) - Per Session"
+    "Autocomplete (included with Places Details) - Per Session",
+    "Static Street View"
   ],
   "hankookn": [
     "Dynamic Maps",
@@ -120,9 +138,10 @@
     "Long Term Logical Storage",
     "Long Term Logical Storage (asia-northeast3)",
     "Active Logical Storage",
-    "Active Logical Storage (asia-northeast3)",
+    "Active Logical Storage (aisa-northeast3)",
     "Streaming Insert",
-    "Streaming Insert (asia-northeast3)"
+    "Streaming Insert (asia-northeast3)",
+    "Active Logical Storage (asia-northeast3)"
   ],
   "hyundai-autolink": [
     "Geocoding",
@@ -134,9 +153,11 @@
     "Maps SDK"
   ],
   "hyundaicard-universe": [
-    "Dynamic Maps"
+    "Dynamic Maps",
+    "Geocoding"
   ],
   "jch": [
+    "Dynamic Maps",
     "Autocomplete - Per Request",
     "Autocomplete without Places Details - Per Session",
     "Basic Data",
@@ -151,6 +172,7 @@
     "Atmosphere Data",
     "Basic Data",
     "Contact Data",
+    "Places - Text Search",
     "Query Autocomplete - Per Request",
     "Geocoding"
   ],
@@ -160,9 +182,579 @@
   ],
   "Samsung-NowBrief": [
     "Directions Advanced",
+    "Distance Matrix",
+    "Dynamic Maps",
+    "Maps SDK",
+    "Routes: Compute Routes Pro",
+    "Geocoding"
+  ],
+  "ATOMY": [
+    "Neural Translation Model Predictions",
+    "Dynamic Maps",
+    "Autocomplete without Places Details - Per Session",
+    "Distance Matrix"
+  ],
+  "Beyless - Monitoring System": [
+    "Elevation",
+    "Dynamic Maps",
+    "Geocoding"
+  ],
+  "GSN - YANOLJA": [
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Essentials",
+    "Places API Place Details Photos",
+    "Places API Place Details Pro",
+    "Dynamic Maps",
+    "Autocomplete Requests",
+    "Autocomplete Session Usage",
+    "Maps SDK",
+    "Atmosphere Data",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Contact Data",
+    "Places Details"
+  ],
+  "Hecto Innovation": [
+    "Places API Place Details Photos",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Dynamic Maps",
+    "Places API Place Details Essentials (IDs Only)",
+    "Cloud Run Functions Invocations",
+    "Cloud Run functions CPU (Request-based billing) in asia-northeast1",
+    "Cloud Run functions Memory (Request-based billing) in asia-northeast1"
+  ],
+  "KIA": [
+    "Geocoding",
+    "Dynamic Maps",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places Details",
+    "Autocomplete without Places Details - Per Session",
+    "Places - Nearby Search",
+    "Maps SDK"
+  ],
+  "kopri": [
+    "Dynamic Maps"
+  ],
+  "KOREAAIRPORT": [
+    "Dynamic Maps",
+    "Directions",
+    "Atmosphere Data",
+    "Basic Data",
+    "Contact Data",
+    "Places Details",
+    "Autocomplete - Per Request",
+    "Places - Text Search",
+    "Places Photo",
+    "Autocomplete without Places Details - Per Session",
+    "Places - Nearby Search"
+  ],
+  "KOREANAIR": [
+    "Dynamic Maps",
+    "Geocoding"
+  ],
+  "KT": [
+    "Dynamic Maps"
+  ],
+  "LG DMS EAI": [
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Directions Advanced",
+    "Distance Matrix Advanced",
+    "Dynamic Maps",
+    "Geocoding",
+    "Places Details",
+    "Atmosphere Data",
+    "Contact Data"
+  ],
+  "LG DMS EUR": [
+    "Dynamic Maps",
+    "Directions Advanced",
+    "Geocoding",
+    "Distance Matrix Advanced"
+  ],
+  "LG MCS": [
+    "Dynamic Maps",
+    "Directions",
+    "Directions Advanced",
+    "Distance Matrix",
+    "Routes: Compute Routes Pro",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Places Details",
+    "Basic Data",
+    "Geocoding",
+    "Address Validation Pro"
+  ],
+  "MOFA": [
+    "Geocoding",
+    "Time Zone"
+  ],
+  "NEWBALANCE": [
+    "Static Maps"
+  ],
+  "NGL Korea": [
+    "Mobility Accelerate",
+    "Navigation Request",
+    "Dynamic Maps",
+    "Geocoding",
+    "Places Details",
+    "Place Details - Contact",
+    "Place Details - Atmosphere",
+    "Autocomplete - Per Request",
+    "RouteOptimization - FleetRouting",
+    "Routes: Compute Routes - Essentials"
+  ],
+  "Naver": [
+    "Directions",
+    "Routes: Compute Route Matrix Essentials",
+    "Routes: Compute Routes Essentials",
+    "Routes: Compute Routes Pro",
+    "Geocoding",
+    "Dynamic Maps",
+    "Maps SDK",
+    "Static Maps",
+    "Atmosphere Data",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Contact Data",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places Details",
+    "Places Photo",
+    "Autocomplete Requests",
+    "Places API Nearby Search Pro",
+    "Places API Place Details Photos",
+    "Places API Place Details Pro",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Essentials",
+    "Places API Text Search Enterprise + Atmosphere",
+    "Places API Text Search Pro",
+    "Static Street View"
+  ],
+  "S1": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Dynamic Street View",
+    "Directions Advanced",
+    "Maps SDK",
+    "Geocoding"
+  ],
+  "Samsung Logitech": [
+    "Dynamic Maps",
+    "Directions",
+    "Directions Advanced",
+    "Distance Matrix Advanced",
+    "RouteOptimization - SingleVehicleRouting",
+    "Geocoding"
+  ],
+  "WEBTOUR": [
+    "Dynamic Maps",
+    "Geocoding"
+  ],
+  "bespin - vanpl": [
+    "Geocoding"
+  ],
+  "coupang jp rocket now": [
+    "Mobility Activate",
+    "Atmosphere Data",
+    "Autocomplete - Per Request",
+    "Autocomplete Requests",
+    "Autocomplete without Place Details - Per Session",
+    "Places Details",
+    "Basic Data",
+    "Contact Data",
+    "Dynamic Maps",
+    "Geocoding",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places API Text Search Enterprise",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Pro",
+    "Routes: Compute Routes Enterprise",
+    "Query Autocomplete - Per Request"
+  ],
+  "han-pass": [
+    "Dynamic Maps",
+    "Autocomplete Requests",
+    "Places API Nearby Search Enterprise",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Photos",
+    "Places API Place Details Pro",
+    "Places API Text Search Enterprise",
+    "Places API Text Search Essentials (IDs Only)",
+    "Places API Text Search Pro",
+    "Places UI Kit Query",
+    "Geocoding"
+  ],
+  "j-mobile": [
+    "Dynamic Maps",
+    "Query Autocomplete - Per Request",
+    "Places Details",
+    "Atmosphere Data",
+    "Contact Data",
+    "Basic Data",
+    "Places - Text Search",
+    "Geocoding"
+  ],
+  "kakao": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Static Street View",
+    "Places Details",
+    "Basic Data",
+    "Contact Data",
+    "Atmosphere Data",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places API Nearby Search Pro",
+    "Places API Place Details Pro",
+    "Places API Text Search Pro",
+    "Queries",
+    "Long Term Logical Storage",
+    "Maps SDK"
+  ],
+  "kakao-mobility": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Directions",
+    "Routes: Compute Routes Pro",
+    "Autocomplete - Per Request",
+    "Autocomplete Requests",
+    "Places Details",
+    "Basic Data",
+    "Places API Place Details Essentials",
+    "Places API Place Details Pro",
+    "Places API Text Search Pro",
+    "Time Zone",
+    "Geocoding",
+    "GenerateContent text input token count for Gemini 2.0 Flash",
+    "GenerateContent text output token count for Gemini 2.0 Flash",
+    "Neural Translation Model Predictions",
+    "Atmosphere Data",
+    "Autocomplete Session Usage",
+    "Contact Data",
+    "Distance Matrix",
+    "Elevation",
+    "Find Place",
+    "Geolocation",
+    "Maps SDK",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places Photo",
+    "Roads - Nearest Road",
+    "Roads - Route Traveled",
+    "Static Street View"
+  ],
+  "koreanre": [
+    "Atmosphere Data",
+    "Contact Data",
+    "Places - Text Search",
+    "Places API Nearby Search Pro",
+    "Places API Text Search Pro",
+    "Geocoding"
+  ],
+  "lg uplus": [
+    "Geolocation"
+  ],
+  "lg.com": [
+    "Dynamic Maps",
+    "Directions",
+    "Geocoding",
+    "Places Details",
+    "Atmosphere Data",
+    "Contact Data",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Places - Nearby Search"
+  ],
+  "lotte card": [
+    "Dynamic Maps",
+    "Routes: Compute Routes Essentials",
+    "Autocomplete Requests",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Photos",
+    "Places API Text Search Enterprise + Atmosphere",
+    "Geocoding"
+  ],
+  "lsmnm": [
+    "Dynamic Maps",
+    "Geocoding"
+  ],
+  "megazone - cupist": [
+    "Geolocation",
+    "Elevation",
+    "Places - Nearby Search",
+    "Autocomplete - Per Request",
+    "Basic Data",
+    "Places Photo",
+    "Atmosphere Data",
+    "Find Place",
+    "Places - Text Search",
+    "Contact Data",
+    "Places Details",
+    "Roads - Nearest Road",
+    "Roads - Route Traveled",
+    "Static Street View",
+    "Directions",
+    "Time Zone",
+    "Static Maps",
+    "Distance Matrix",
+    "Dynamic Maps",
+    "Geocoding",
+    "Maps SDK"
+  ],
+  "megazone - hanwhavision": [
+    "Autocomplete (included with Places Details) - Per Session",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Dynamic Maps",
+    "Places Details",
+    "Geocoding",
+    "Places API Text Search Pro",
+    "Autocomplete - Per Request",
+    "Time Zone",
+    "Autocomplete Requests",
+    "Autocomplete Session Usage",
+    "Maps SDK",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Atmosphere Data",
+    "Contact Data"
+  ],
+  "pantos": [
+    "Dynamic Maps",
+    "Geocoding",
+    "Directions",
+    "Directions Advanced"
+  ],
+  "pittasoft": [
+    "Maps SDK",
+    "Dynamic Maps",
+    "Static Maps",
+    "Static Street View"
+  ],
+  "rememberapp": [
+    "Geocoding"
+  ],
+  "samsung find": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Static Street View",
+    "Geocoding",
+    "Geolocation"
+  ],
+  "samsung m-gspn": [
+    "Neural Translation Model Predictions",
+    "Dynamic Maps",
+    "Distance Matrix",
+    "Geocoding"
+  ],
+  "samsung smartthings": [
+    "Dynamic Maps",
+    "Geocoding",
+    "Time Zone"
+  ],
+  "samsung store": [
+    "Dynamic Maps",
+    "Directions",
+    "Distance Matrix",
+    "Directions Advanced",
+    "Distance Matrix Advanced",
+    "Maps SDK",
+    "RouteOptimization - SingleVehicleRouting",
+    "Geocoding"
+  ],
+  "samsung wallet": [
+    "Time Zone",
+    "Geocoding"
+  ],
+  "samsung.com": [
+    "Dynamic Maps",
+    "Dynamic Street View",
+    "Directions",
+    "Distance Matrix",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Places Details",
+    "Contact Data",
+    "Atmosphere Data",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Geocoding"
+  ],
+  "splyt": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Directions",
+    "Routes: Compute Routes Pro",
+    "Autocomplete - Per Request",
+    "Autocomplete Requests",
+    "Places Details",
+    "Basic Data",
+    "Places API Place Details Essentials",
+    "Places API Place Details Pro",
+    "Places API Text Search Pro",
+    "Time Zone",
+    "Geocoding",
+    "GenerateContent text input token count for Gemini 2.0 Flash",
+    "GenerateContent text output token count for Gemini 2.0 Flash",
+    "Neural Translation Model Predictions"
+  ],
+  "studio g": [
+    "Dynamic Maps",
+    "Maps SDK",
+    "Navigation Request",
+    "Autocomplete Requests",
+    "Places API Place Details Essentials",
+    "Places API Place Details Pro",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Text Search Pro",
+    "Geocoding",
+    "Neural Translation Model Predictions"
+  ],
+  "timing golf": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Elevation"
+  ],
+  "triphos": [
+    "Dynamic Maps",
+    "Maps SDK"
+  ],
+  "11st": [
+    "Dynamic Maps"
+  ],
+  "Timing Golf": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Elevation",
+    "Maps SDK"
+  ],
+  "StudioG": [
+    "Dynamic Maps",
+    "Maps SDK",
+    "Navigation Request",
+    "Autocomplete Requests",
+    "Places API Place Details Essentials",
+    "Places API Place Details Pro",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Text Search Pro",
+    "Geocoding",
+    "Neural Translation Model Predictions",
+    "Autocomplete Session Usage",
+    "Language Detection",
+    "Roads - Nearest Road"
+  ],
+  "smartthings-find": [
     "Dynamic Maps",
     "Geocoding",
     "Maps SDK",
-    "Routes: Compute Routes Pro"
+    "Time Zone"
+  ],
+  "samsung-find": [
+    "Dynamic Maps",
+    "Static Maps",
+    "Static Street View",
+    "Geocoding",
+    "Geolocation",
+    "Maps SDK"
+  ],
+  "mofa-callcenter": [
+    "Geocoding",
+    "Time Zone"
+  ],
+  "LG-MCS": [
+    "Dynamic Maps",
+    "Directions",
+    "Directions Advanced",
+    "Distance Matrix",
+    "Routes: Compute Routes Pro",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Places Details",
+    "Basic Data",
+    "Geocoding",
+    "Address Validation Pro",
+    "Autocomplete (included with Places Details) - Per Session"
+  ],
+  "kt-online-dt": [
+    "Dynamic Maps"
+  ],
+  "koreanair": [
+    "Dynamic Maps",
+    "Geocoding",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Autocomplete - Per Request",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Directions",
+    "Directions Advanced",
+    "Maps SDK",
+    "Places Details"
+  ],
+  "koreaairport": [
+    "Dynamic Maps",
+    "Directions",
+    "Atmosphere Data",
+    "Basic Data",
+    "Contact Data",
+    "Places Details",
+    "Autocomplete - Per Request",
+    "Places - Text Search",
+    "Places Photo",
+    "Autocomplete without Places Details - Per Session",
+    "Places - Nearby Search",
+    "Autocomplete (included with Places Details) - Per Session",
+    "Geocoding"
+  ],
+  "git-kia-motors": [
+    "Autocomplete (included with Places Details) - Per Session",
+    "Basic Data",
+    "Autocomplete without Places Details - Per Session",
+    "Atmosphere Data",
+    "Contact Data",
+    "Dynamic Maps",
+    "Geocoding",
+    "Maps SDK",
+    "Places - Nearby Search",
+    "Places Details"
+  ],
+  "kt-powertel": [
+    "Dynamic Maps",
+    "Query Autocomplete - Per Request",
+    "Places Details",
+    "Atmosphere Data",
+    "Contact Data",
+    "Basic Data",
+    "Places - Text Search",
+    "Geocoding"
+  ],
+  "GSN-Yanolja Group": [
+    "Active Logical Storage",
+    "Atmosphere Data",
+    "Autocomplete Requests",
+    "Autocomplete Session Usage",
+    "Autocomplete without Places Details - Per Session",
+    "Basic Data",
+    "Contact Data",
+    "Dynamic Maps",
+    "Long Term Logical Storage",
+    "Maps SDK",
+    "Places API Place Details Enterprise",
+    "Places API Place Details Enterprise + Atmosphere",
+    "Places API Place Details Essentials",
+    "Places API Place Details Photos",
+    "Places API Place Details Pro",
+    "Places Details"
+  ],
+  "apqa": [
+    "Dynamic Maps",
+    "Geocoding"
   ]
 }

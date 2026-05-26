@@ -1,5 +1,88 @@
 {
   "hyundai-autolink": [],
-  "hanatour": [],
-  "han-pass": []
+  "hanatour": [
+    "Places - Nearby Search",
+    "Find Place",
+    "Places API Place Details Essentials",
+    "Places API Place Details Essentials (IDs Only)",
+    "Places API Text Search Enterprise + Atmosphere",
+    "Generate_content text input token count for gemini 3 flash",
+    "Generate_content text output token count for gemini 3 flash"
+  ],
+  "han-pass": [],
+  "verygoodtour": [
+    "Static Street View",
+    "Directions",
+    "Distance Matrix",
+    "Autocomplete - Per Request",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places Details",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places Photo",
+    "Geocoding",
+    "Elevation"
+  ],
+  "LG MCS": [
+    "Routes: Compute Route Matrix Essentials",
+    "Routes: Compute Route Matrix Pro",
+    "Contact Data",
+    "Atmosphere Data"
+  ],
+  "hyundaicard-universe": [
+    "Autocomplete - Per Request",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places Details"
+  ],
+  "samsung find": [
+    "Elevation",
+    "Directions",
+    "Distance Matrix",
+    "Roads - Nearest Road",
+    "Roads - Route Traveled",
+    "Autocomplete - Per Request",
+    "Places Details",
+    "Basic Data",
+    "Atmosphere Data",
+    "Contact Data",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Find Place",
+    "Places Photo"
+  ],
+  "studio g": [
+    "Autocomplete - Per Request",
+    "Places Details",
+    "Atmosphere Data",
+    "Basic Data",
+    "Contact Data",
+    "Places - Nearby Search"
+  ],
+  "Timing Golf": [],
+  "StudioG": [
+    "Autocomplete Session Usage",
+    "Language Detection",
+    "Roads - Nearest Road"
+  ],
+  "Samsung-NowBrief": [],
+  "kakao-mobility": [
+    "Atmosphere Data",
+    "Autocomplete Session Usage",
+    "Contact Data",
+    "Distance Matrix",
+    "Elevation",
+    "Find Place",
+    "Geolocation",
+    "Maps SDK",
+    "Places - Nearby Search",
+    "Places - Text Search",
+    "Places Photo",
+    "Roads - Nearest Road",
+    "Roads - Route Traveled",
+    "Static Street View"
+  ]
 }

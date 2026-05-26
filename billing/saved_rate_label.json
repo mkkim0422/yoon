@@ -3,78 +3,875 @@
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "Bespinglobal-Myrealtrip": {
-    "bank": "서울외국환",
-    "phrase": "매매기준",
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-28"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "Bespinglobal-Socar": {
-    "bank": "서울외국환",
-    "phrase": "매매기준",
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2025-12-31"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "BespinGlobal-TeamO2": {
-    "bank": "서울외국환",
-    "phrase": "매매기준",
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "Beyless - Monitoring System": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "coupang": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2025-12-31"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "Ground K": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "hankookn": {
     "bank": "하나은행",
-    "phrase": "최종 매매환율 기준",
+    "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "Hecto Innovation": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "hyundai-autolink": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "hyundaicard-universe": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "jch": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2026-02-27"
+    "date": "2026-04-29",
+    "rate": 1455.0
   },
   "amorepacific": {
     "bank": "하나은행",
     "phrase": "최종 송금환율 기준",
     "extra": "",
-    "date": "2025-12-31"
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Samsung-Logitech": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ATOMY": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "Bespin - Myrealtrip": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "bespin - socar": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "bespin - team o2": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "bespin - vanpl": {
+    "bank": "서울외국환",
+    "phrase": "매매기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "BEYLESS": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "dogtra": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "han-pass": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kakao": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "KIA": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "KOPRI": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "KOREAAIRPORT": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "KOREANAIR": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "koreanre": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "KT": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "lg uplus": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "lotte card": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "lsmnm": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "MOFA": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "NEWBALANCE": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "pittasoft": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "rememberapp": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "S1": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "samsung wallet": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "soften": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "studio g": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "timing golf": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "triphos": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "WEBTOUR": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-30",
+    "rate": null
+  },
+  "11st": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Air Incheon": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "apqa": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "asianaairline": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "atomy": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Bespinglobal-Vanpl": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Billing Account for sphinfo.co.kr": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "cj-korea-express": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "cupist": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "daelim": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "datasam": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "etc": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "galaxy-book": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Geosurvey": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "git-kia-motors": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "GSN-Yanolja Group": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "hanwha-vision": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "HD-Marine Solution": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "hmc": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "hyundai-gs": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "hyundaicard-translate": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "hyundaigloviscoltd": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ibk": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Japan-Rocket-Now": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kakao-mobility": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "KAMCO": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "knox": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kopri": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "koreaairport": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "koreanair": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "KOTI - sphinfo.co.kr - 1": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kt-online-dt": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kt-powertel": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "kt-telecop-police": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "lg-dmst": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "lg-dotcom": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "LG-MCS": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "lg-uplus": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "lotte-card": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "lotte-global-logis": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ls-nikko": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "megazonesoft-yanolja": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "mofa-callcenter": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "newbalance": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "NGL Korea": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "nhn": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "nims": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ntek": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "pantos": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "posco": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "posco-flow": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "s1": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Samsung Wallet": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-carbon-emission-management": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-clab": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-dotcom": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-find": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-gsrm": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-m-gspn": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-nexshop": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Samsung-NowBrief": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-sds-cello": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-semcobuy": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-store": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "samsung-visitin": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "sandbox": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "SCK-Company": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "seavantage": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "sk-planet-hotel": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "smartthings-find": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "socar": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "SoftEN Corp.": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ssg": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "station3": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "StudioG": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "telcomcell": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Timing Golf": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Toss": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "ulsan_fire_department": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "verygoodtour": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "Visang": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
+  },
+  "webtour": {
+    "bank": "하나은행",
+    "phrase": "최종 송금환율 기준",
+    "extra": "",
+    "date": "2026-04-29",
+    "rate": 1455.0
   }
 }

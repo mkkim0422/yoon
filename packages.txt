@@ -1,0 +1,4 @@
+libreoffice-calc
+libreoffice-core
+fonts-nanum
+fonts-noto-cjk

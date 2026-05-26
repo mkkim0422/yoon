@@ -30,5 +30,33 @@
   "SoftEN Corp.": {
     "amount": 500000.0,
     "currency": "KRW"
+  },
+  "verygoodtour": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "triphos": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "Samsung Wallet": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "pittasoft": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "kt-online-dt": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "koreanair": {
+    "amount": 500000.0,
+    "currency": "KRW"
+  },
+  "git-kia-motors": {
+    "amount": 500000.0,
+    "currency": "KRW"
   }
 }

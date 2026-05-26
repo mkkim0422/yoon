@@ -1,17 +1,23 @@
 """
 pdf_export.py — Excel Invoice 시트를 PDF로 변환.
 
-구현 방식: 별도 Python subprocess 를 띄워 그 안에서 Excel COM 자동화를
-수행한다. Streamlit 은 요청을 워커 스레드에서 처리하므로 같은 프로세스에서
-COM 을 초기화하면 apartment threading / GIL / 전역 Excel 상태 공유 등으로
-비결정적 실패가 잦다. subprocess 로 격리하면 COM 상태가 매번 새로 초기화
-되고, 실패 시 stderr 를 그대로 캡처해 사용자에게 보여줄 수 있다.
+구현 방식 — OS 분기:
+  · Windows: Excel COM (pywin32). Streamlit 워커 스레드의 COM apartment 문제를
+    피하려고 별도 Python subprocess 에서 Dispatch.
+  · Linux  : LibreOffice headless (`soffice --convert-to pdf`). Streamlit Cloud
+    같은 Linux 환경 대응. 변환 전에 openpyxl 로 sheet_name 외 시트는 hidden
+    처리하고 A4·여백·"한 페이지에 맞춤" 설정을 주입해 Excel COM 과 가능한
+    가까운 레이아웃을 얻는다.
 
-Windows + Microsoft Excel + pywin32 가 필요.
+요구 사항:
+  · Windows: Microsoft Excel + pywin32
+  · Linux  : libreoffice (apt: `libreoffice-calc`, `libreoffice-core`)
 """
 from __future__ import annotations
 
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -137,6 +143,120 @@ finally:
 '''
 
 
+def _find_soffice() -> str | None:
+    """Linux/Mac 의 LibreOffice 바이너리 경로. PATH 우선, 없으면 흔한 위치 탐색."""
+    for cand in ("soffice", "libreoffice"):
+        p = shutil.which(cand)
+        if p:
+            return p
+    for p in (
+        "/usr/bin/soffice", "/usr/bin/libreoffice",
+        "/usr/lib/libreoffice/program/soffice",
+        "/snap/bin/libreoffice",
+    ):
+        if Path(p).exists():
+            return p
+    return None
+
+
+def _xlsx_to_pdf_libreoffice(
+    xlsx_bytes: bytes,
+    sheet_name: str,
+    timeout_sec: int,
+) -> tuple[bytes | None, str | None]:
+    """LibreOffice headless 로 xlsx → PDF. sheet_name 외 시트는 숨겨서 첫 페이지가
+    해당 시트가 되도록 한다. PageSetup(A4·여백·1페이지 맞춤)도 openpyxl 로 주입.
+    """
+    soffice = _find_soffice()
+    if not soffice:
+        return None, (
+            "LibreOffice(soffice) 를 찾을 수 없습니다. "
+            "packages.txt 에 `libreoffice-calc` 가 포함되어 있는지 확인하세요."
+        )
+
+    base = Path(tempfile.gettempdir()) / f"sph_pdf_{uuid.uuid4().hex[:10]}"
+    base.mkdir(parents=True, exist_ok=True)
+    xlsx_path = base / "invoice.xlsx"
+    # 출력 PDF 는 soffice 가 입력 파일명 기준 같은 이름으로 만든다(invoice.pdf)
+    pdf_path = base / "invoice.pdf"
+
+    try:
+        xlsx_path.write_bytes(xlsx_bytes)
+
+        # ── sheet_name 외 시트 숨김 + PageSetup 주입 ──────────────────
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(xlsx_path)
+            if sheet_name not in wb.sheetnames:
+                return None, f"엑셀 파일에 '{sheet_name}' 시트가 없습니다."
+            # 대상 시트를 active 로 설정 + 다른 시트는 hidden
+            for nm in wb.sheetnames:
+                ws = wb[nm]
+                if nm == sheet_name:
+                    wb.active = wb.sheetnames.index(nm)
+                else:
+                    ws.sheet_state = "hidden"
+            ws = wb[sheet_name]
+            # 페이지 설정 — Excel COM 분기와 동일한 의도(A4, 1페이지 fit, 좁은 여백)
+            ws.page_setup.orientation     = ws.ORIENTATION_PORTRAIT
+            ws.page_setup.paperSize       = ws.PAPERSIZE_A4
+            ws.page_setup.fitToWidth      = 1
+            ws.page_setup.fitToHeight     = 1
+            ws.sheet_properties.pageSetUpPr.fitToPage = True
+            ws.print_options.horizontalCentered = True
+            ws.page_margins.left   = 0.25
+            ws.page_margins.right  = 0.25
+            ws.page_margins.top    = 0.3
+            ws.page_margins.bottom = 0.3
+            ws.page_margins.header = 0.1
+            ws.page_margins.footer = 0.1
+            wb.save(xlsx_path)
+        except Exception as e:
+            # openpyxl 처리 실패해도 그대로 변환 시도 (품질만 낮아질 뿐).
+            sys.stderr.write(f"pre-pdf openpyxl tweak failed: {e}\n")
+
+        # ── LibreOffice headless 변환 ───────────────────────────────
+        # HOME 환경변수 없는 컨테이너 환경 대응 — --env:UserInstallation
+        user_profile = base / "lo_profile"
+        completed = subprocess.run(
+            [
+                soffice,
+                "--headless",
+                "--norestore", "--nofirststartwizard", "--nologo",
+                f"-env:UserInstallation=file://{user_profile}",
+                "--convert-to", "pdf",
+                "--outdir", str(base),
+                str(xlsx_path),
+            ],
+            capture_output=True,
+            timeout=timeout_sec,
+        )
+
+        if pdf_path.exists() and pdf_path.stat().st_size > 0:
+            return pdf_path.read_bytes(), None
+
+        stderr = (completed.stderr or b"").decode(errors="ignore").strip()
+        stdout = (completed.stdout or b"").decode(errors="ignore").strip()
+        return None, (
+            f"LibreOffice 변환 실패 [rc={completed.returncode}]: "
+            f"{stderr or stdout or '(추가 정보 없음)'}"
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"PDF 변환이 {timeout_sec} 초 내에 완료되지 않았습니다."
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+    finally:
+        for p in (xlsx_path, pdf_path):
+            try:
+                if p.exists(): p.unlink()
+            except Exception:
+                pass
+        try:
+            shutil.rmtree(base, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def xlsx_sheet_to_pdf(
     xlsx_bytes: bytes,
     sheet_name: str = "Invoice",
@@ -148,6 +268,11 @@ def xlsx_sheet_to_pdf(
       (pdf_bytes, None)  — 성공
       (None, err_msg)    — 실패 (err_msg 는 사용자에게 표시할 원인)
     """
+    # Linux/macOS → LibreOffice 분기 (Streamlit Cloud 등 Excel 없는 환경 대응).
+    if platform.system() != "Windows":
+        # LibreOffice 가 무거운 변환이라 기본 timeout 을 좀 더 넉넉히.
+        return _xlsx_to_pdf_libreoffice(xlsx_bytes, sheet_name, max(timeout_sec, 120))
+
     # 임시 작업 디렉터리 — Excel COM 은 한글/공백 경로에 약하므로 %TEMP% 하위 영문 경로 사용
     base = Path(tempfile.gettempdir()) / f"sph_pdf_{uuid.uuid4().hex[:10]}"
     base.mkdir(parents=True, exist_ok=True)
@@ -210,7 +335,13 @@ def xlsx_sheet_to_pdf(
 
 
 def is_available() -> bool:
-    """PDF 변환 가능 여부 — Windows 에서 subprocess 로 Excel dispatch 를 시도해 판정."""
+    """PDF 변환 가능 여부.
+       Windows: subprocess 로 Excel dispatch 시도.
+       Linux/macOS: LibreOffice(soffice) 바이너리 존재 확인.
+    """
+    if platform.system() != "Windows":
+        return _find_soffice() is not None
+
     script = (
         "import sys\n"
         "try:\n"
