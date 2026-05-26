@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>sGMP Invoice Generator — 사용 설명서</title>
+<title>sGMP Invoice Generator — 화면별 사용 가이드</title>
 <style>
   :root {
     --primary: #0b6fda;
@@ -15,9 +15,12 @@
     --text: #1f2933;
     --text-soft: #475568;
     --text-mute: #7a8a90;
-    --bg: #f4f7fb;
+    --bg: #eef2f7;
     --card: #ffffff;
-    --border: #e6ebf0;
+    --border: #e0e6ed;
+    --mock-bg: #fafbfc;
+    --mock-border: #d0d7de;
+    --st-red: #ff4b4b;   /* Streamlit signature red */
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -33,229 +36,421 @@
     user-select: none;
   }
 
-  /* ── 슬라이드 컨테이너 ─────────────────────────── */
-  .deck {
-    width: 100vw; height: 100vh;
-    position: relative; overflow: hidden;
-  }
+  /* ── 슬라이드 ─────────────────────────── */
+  .deck { width: 100vw; height: 100vh; position: relative; overflow: hidden; }
   .slide {
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
-    padding: 60px 80px;
+    padding: 40px 60px;
     opacity: 0; pointer-events: none;
-    transform: translateX(40px);
-    transition: opacity 0.35s ease, transform 0.35s ease;
+    transform: translateX(30px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
   }
-  .slide.active {
-    opacity: 1; pointer-events: auto;
-    transform: translateX(0);
-  }
+  .slide.active { opacity: 1; pointer-events: auto; transform: translateX(0); }
   .slide-inner {
-    width: 100%; max-width: 1100px;
-    background: var(--card);
-    border-radius: 24px;
-    padding: 56px 64px;
+    width: 100%; max-width: 1280px; height: calc(100vh - 110px);
+    background: var(--card); border-radius: 18px;
+    padding: 32px 48px;
     box-shadow: 0 20px 60px rgba(15,18,22,0.10);
-    min-height: 75vh;
-    display: flex; flex-direction: column; justify-content: center;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 18px;
+    overflow: hidden;
   }
   .slide-inner.hero {
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
     color: #ffffff;
     text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
   }
   .slide-inner.hero h1 {
     font-size: 3.4rem; font-weight: 800; letter-spacing: -0.5px;
     margin-bottom: 18px;
   }
   .slide-inner.hero .sub {
-    font-size: 1.3rem; opacity: 0.92; font-weight: 400;
-    margin-bottom: 12px;
+    font-size: 1.3rem; opacity: 0.92; font-weight: 400; margin-bottom: 12px;
   }
   .slide-inner.hero .meta {
     font-size: 0.95rem; opacity: 0.7; margin-top: 30px;
   }
 
-  /* ── 슬라이드 콘텐츠 ─────────────────────────── */
-  .chip {
+  /* ── 슬라이드 헤더 ─────────────────────────── */
+  .slide-header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 14px;
+  }
+  .slide-chip {
     display: inline-block;
-    background: var(--primary);
-    color: #ffffff;
-    padding: 6px 14px;
-    border-radius: 999px;
-    font-size: 0.8rem; font-weight: 600;
-    margin-bottom: 18px; letter-spacing: 0.3px;
+    background: var(--primary); color: #ffffff;
+    padding: 4px 12px; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600;
+    letter-spacing: 0.3px; margin-bottom: 8px;
   }
-  h2 {
-    font-size: 2.1rem; font-weight: 800;
-    margin-bottom: 12px; color: var(--text);
-    letter-spacing: -0.3px;
+  .slide-title {
+    font-size: 1.7rem; font-weight: 800; color: var(--text);
+    letter-spacing: -0.2px;
   }
-  .lead {
-    font-size: 1.1rem; color: var(--text-soft);
-    margin-bottom: 28px; line-height: 1.55;
+  .slide-sub {
+    font-size: 0.95rem; color: var(--text-soft); margin-top: 4px;
   }
-  .grid-2 {
+
+  /* ── 슬라이드 본문: 좌 mock / 우 steps ─────────────────────────── */
+  .slide-body {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 18px;
+    grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+    gap: 32px;
+    min-height: 0;   /* allow shrink */
   }
-  .grid-3 {
+  .slide-body.center {
+    grid-template-columns: 1fr;
+    place-items: center;
+  }
+  .mock-wrap {
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 0;
+    overflow: auto;
+  }
+  .steps {
+    display: flex; flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    padding-right: 8px;
+  }
+  .step {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 16px;
+    grid-template-columns: 28px 1fr;
+    gap: 10px;
+    align-items: start;
   }
-  .feature {
-    background: #f7fafd;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px 20px;
-  }
-  .feature h3 {
-    font-size: 1.05rem; font-weight: 700;
-    color: var(--primary-dark);
-    margin-bottom: 6px;
-  }
-  .feature p {
-    font-size: 0.92rem; color: var(--text-soft);
-    line-height: 1.55;
-  }
-  .step-list { list-style: none; padding: 0; }
-  .step-list li {
-    display: flex; gap: 16px;
-    padding: 14px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .step-list li:last-child { border-bottom: 0; }
   .step-num {
-    flex-shrink: 0;
-    width: 32px; height: 32px;
+    width: 28px; height: 28px;
     background: var(--primary); color: #ffffff;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-size: 0.95rem;
+    font-weight: 700; font-size: 0.85rem;
+    flex-shrink: 0;
   }
-  .step-body { flex: 1; }
-  .step-body strong {
-    display: block; font-size: 1rem; color: var(--text);
-    margin-bottom: 3px;
+  .step-text {
+    font-size: 0.92rem; line-height: 1.55; color: var(--text-soft);
+    padding-top: 3px;
   }
-  .step-body span {
-    font-size: 0.9rem; color: var(--text-soft); line-height: 1.5;
-  }
-  table.meta-table {
-    width: 100%; border-collapse: collapse;
-    font-size: 0.92rem;
-  }
-  table.meta-table th, table.meta-table td {
-    text-align: left; padding: 12px 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  table.meta-table th {
-    background: #f0f5fa; font-weight: 700; color: var(--text);
-  }
-  table.meta-table td.code {
-    font-family: "JetBrains Mono", "Consolas", monospace;
-    color: var(--primary-dark);
-    font-weight: 600;
-  }
-  .callout {
-    border-left: 4px solid var(--primary);
-    background: #eef6fe;
-    padding: 14px 18px;
-    border-radius: 0 10px 10px 0;
-    font-size: 0.93rem;
-    color: var(--text-soft);
-    line-height: 1.55;
-    margin-top: 18px;
-  }
-  .callout.warn { border-color: var(--warn); background: #fff7e6; }
-  .callout.danger { border-color: var(--danger); background: #fdecec; }
-  .callout strong { color: var(--text); }
-  .pill {
+  .step-text strong { color: var(--text); }
+  .step-text .pill {
     display: inline-block;
-    background: var(--bg);
-    color: var(--text-soft);
-    padding: 3px 10px;
-    border-radius: 8px;
+    background: #f0f5fa; color: var(--primary-dark);
+    padding: 1px 8px; border-radius: 6px;
+    font-family: "JetBrains Mono", monospace;
     font-size: 0.82rem;
-    font-family: "JetBrains Mono", "Consolas", monospace;
     border: 1px solid var(--border);
-    margin: 2px 0;
   }
-  kbd {
-    background: #fafbfc;
-    border: 1px solid var(--border);
-    border-bottom-width: 2px;
-    border-radius: 6px;
-    padding: 2px 8px;
-    font-family: monospace;
-    font-size: 0.82rem;
+  .step-text kbd {
+    background: #fafbfc; border: 1px solid var(--border);
+    border-bottom-width: 2px; border-radius: 6px;
+    padding: 1px 7px; font-family: monospace; font-size: 0.8rem;
+  }
+  .step-tip {
+    background: #eef6fe;
+    border-left: 3px solid var(--primary);
+    padding: 10px 12px;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.88rem;
+    color: var(--text-soft);
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+  .step-tip.warn { border-color: var(--warn); background: #fff7e6; }
+  .step-tip.danger { border-color: var(--danger); background: #fdecec; }
+  .step-tip strong { color: var(--text); }
+
+  /* ── Streamlit-like Mock components ──────────────── */
+  .mock {
+    background: var(--card);
+    border: 1px solid var(--mock-border);
+    border-radius: 10px;
+    position: relative;
+    overflow: hidden;
+    font-size: 0.85rem;
     color: var(--text);
   }
-
-  /* ── 모형 (UI 미리보기 박스) ─────────────────── */
-  .mock {
-    background: #1f2933; color: #d8e2eb;
-    border-radius: 10px;
-    padding: 16px 20px;
-    font-family: "JetBrains Mono", "Consolas", monospace;
-    font-size: 0.85rem;
-    line-height: 1.6;
-    margin-top: 14px;
+  .mock-app {
+    width: 100%;
+    max-width: 720px;
+    box-shadow: 0 8px 28px rgba(15,18,22,0.10);
   }
-  .mock .muted { color: #7a8a90; }
-  .mock .ok { color: #21b96d; }
-  .mock .warn { color: #f5a623; }
-  .mock .danger { color: #ff6b6b; }
-  .mock .accent { color: #21b6f6; }
+  .mock-header-bar {
+    height: 30px;
+    background: linear-gradient(180deg, #f6f8fa 0%, #eef2f7 100%);
+    border-bottom: 1px solid var(--mock-border);
+    display: flex; align-items: center; padding-left: 14px; gap: 6px;
+  }
+  .mock-header-bar .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #ff6058;
+  }
+  .mock-header-bar .dot:nth-child(2) { background: #ffbd2e; }
+  .mock-header-bar .dot:nth-child(3) { background: #28ca42; }
+  .mock-body {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    min-height: 380px;
+  }
+  .mock-body.no-side { grid-template-columns: 1fr; }
+  .mock-side {
+    background: #f6f8fa;
+    border-right: 1px solid var(--mock-border);
+    padding: 14px 12px;
+    font-size: 0.78rem;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .mock-main { padding: 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+  .mock-section-title {
+    font-size: 0.82rem; font-weight: 700; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .mock-uploader {
+    border: 2px dashed var(--mock-border);
+    border-radius: 8px;
+    padding: 14px 10px;
+    text-align: center;
+    color: var(--text-mute);
+    font-size: 0.78rem;
+    background: var(--mock-bg);
+  }
+  .mock-uploader.filled {
+    border-style: solid; border-color: var(--success);
+    background: #e9f9ee; color: var(--success);
+  }
+  .mock-uploader .browse {
+    display: inline-block;
+    background: var(--card); border: 1px solid var(--mock-border);
+    padding: 3px 10px; border-radius: 6px; margin-top: 6px;
+    color: var(--text-soft); font-size: 0.75rem;
+  }
+  .mock-input {
+    background: var(--card);
+    border: 1px solid var(--mock-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .mock-input.muted { color: var(--text-mute); font-style: italic; }
+  .mock-label {
+    font-size: 0.75rem; color: var(--text-soft);
+    margin-bottom: 3px; font-weight: 500;
+  }
+  .mock-btn {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--mock-border);
+    border-radius: 6px; padding: 6px 14px;
+    font-size: 0.82rem; font-weight: 500;
+    display: inline-block;
+  }
+  .mock-btn.primary {
+    background: var(--st-red); color: #ffffff;
+    border: 0;
+  }
+  .mock-btn.full { display: block; text-align: center; }
+  .mock-toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 0.82rem;
+  }
+  .mock-toggle .sw {
+    width: 32px; height: 18px;
+    background: var(--st-red); border-radius: 999px;
+    position: relative;
+  }
+  .mock-toggle .sw::after {
+    content: ''; position: absolute;
+    top: 2px; right: 2px;
+    width: 14px; height: 14px;
+    background: #fff; border-radius: 50%;
+  }
+  .mock-toggle.off .sw { background: #c8d1d8; }
+  .mock-toggle.off .sw::after { right: auto; left: 2px; }
+  .mock-radio {
+    display: flex; gap: 14px; font-size: 0.82rem;
+  }
+  .mock-radio label {
+    display: flex; align-items: center; gap: 5px; cursor: pointer;
+  }
+  .mock-radio .r {
+    width: 14px; height: 14px; border: 2px solid var(--mock-border);
+    border-radius: 50%; flex-shrink: 0;
+  }
+  .mock-radio .r.on { border-color: var(--st-red); background: radial-gradient(circle, var(--st-red) 0 4px, #fff 5px 100%); }
+  .mock-check {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.82rem; padding: 4px 0;
+  }
+  .mock-check .cb {
+    width: 16px; height: 16px;
+    border: 1.5px solid var(--mock-border); border-radius: 3px;
+    background: #fff; flex-shrink: 0;
+  }
+  .mock-check .cb.on {
+    background: var(--st-red); border-color: var(--st-red);
+    position: relative;
+  }
+  .mock-check .cb.on::after {
+    content: '✓'; color: #fff; position: absolute;
+    top: -3px; left: 1px; font-size: 13px; font-weight: 700;
+  }
+  .mock-table {
+    border: 1px solid var(--mock-border);
+    border-radius: 6px;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+  .mock-table th {
+    background: #f6f8fa; padding: 7px 8px;
+    border-bottom: 1px solid var(--mock-border);
+    font-weight: 600; text-align: left; color: var(--text-soft);
+  }
+  .mock-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .mock-table tr:last-child td { border-bottom: 0; }
+  .mock-table td.center { text-align: center; }
+  .mock-table .meta-cell {
+    color: var(--text-mute); font-size: 0.72rem;
+  }
+  .mock-progress {
+    background: var(--mock-bg); border: 1px solid var(--mock-border);
+    border-radius: 6px; padding: 8px 10px;
+    font-size: 0.78rem; color: var(--text-soft);
+  }
+  .mock-progress .bar {
+    height: 6px; background: var(--border); border-radius: 3px;
+    overflow: hidden; margin-top: 6px;
+  }
+  .mock-progress .bar > div {
+    height: 100%; background: var(--st-red); width: 35%;
+  }
+  .mock-expander {
+    border: 1px solid var(--mock-border); border-radius: 6px;
+    background: var(--mock-bg);
+  }
+  .mock-expander .head {
+    padding: 8px 12px; font-size: 0.82rem; font-weight: 500;
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .mock-expander .body {
+    padding: 10px 14px;
+    border-top: 1px solid var(--mock-border);
+    background: var(--card);
+    font-size: 0.78rem; color: var(--text-soft);
+    line-height: 1.6;
+  }
+  .mock-callout {
+    background: #fff5f5; border-left: 3px solid var(--danger);
+    padding: 10px 12px; border-radius: 0 6px 6px 0;
+    font-size: 0.8rem; color: var(--text);
+  }
+  .mock-callout.warn { background: #fff7e6; border-color: var(--warn); }
+  .mock-callout.success { background: #e9f9ee; border-color: var(--success); }
+  .mock-callout.info { background: #eef6fe; border-color: var(--primary); }
+
+  /* Overlay (정산 진행 중) mock */
+  .mock-overlay {
+    position: absolute; inset: 30px 0 0 0;
+    background: rgba(15,18,22,0.72);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 2;
+  }
+  .mock-overlay-card {
+    background: #fff; border-radius: 14px;
+    padding: 24px 32px; text-align: center;
+    min-width: 280px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.35);
+  }
+  .mock-overlay-title-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; margin-bottom: 14px;
+  }
+  .mock-spin {
+    width: 20px; height: 20px;
+    border: 3px solid var(--border); border-top-color: var(--primary);
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+  .mock-overlay-card .ttl { font-weight: 700; }
+  .mock-overlay-card .cnt {
+    font-size: 2rem; font-weight: 800; color: var(--primary);
+    line-height: 1; margin: 4px 0 10px 0;
+  }
+  .mock-overlay-card .bar {
+    height: 8px; background: var(--border); border-radius: 999px;
+    overflow: hidden; margin-bottom: 10px;
+  }
+  .mock-overlay-card .bar > div {
+    height: 100%; width: 35%;
+    background: linear-gradient(90deg, var(--primary), var(--primary-light), var(--primary));
+    background-size: 200px 100%;
+    animation: sh 1.4s linear infinite;
+  }
+  @keyframes sh { 100% { background-position: 200px 0; } }
+  .mock-overlay-card .nm { font-size: 0.85rem; color: var(--text-soft); }
+  .mock-overlay-card .mt { font-size: 0.75rem; color: var(--text-mute); margin-top: 2px; }
+
+  /* Numbered hotspots */
+  .hotspot {
+    position: absolute;
+    width: 26px; height: 26px;
+    background: var(--st-red); color: #ffffff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 0.85rem;
+    box-shadow: 0 4px 12px rgba(230,69,69,0.4), 0 0 0 4px rgba(230,69,69,0.18);
+    z-index: 3;
+  }
 
   /* ── 네비게이션 ─────────────────────────── */
   .nav {
-    position: fixed; bottom: 22px; left: 50%;
+    position: fixed; bottom: 18px; left: 50%;
     transform: translateX(-50%);
     display: flex; align-items: center; gap: 14px;
-    background: rgba(255,255,255,0.92);
-    padding: 8px 16px;
-    border-radius: 999px;
+    background: rgba(255,255,255,0.95);
+    padding: 8px 16px; border-radius: 999px;
     box-shadow: 0 6px 20px rgba(15,18,22,0.12);
     backdrop-filter: blur(8px);
     z-index: 100;
   }
   .nav button {
-    border: 0; background: var(--primary); color: #ffffff;
-    width: 32px; height: 32px;
-    border-radius: 50%;
+    border: 0; background: var(--primary); color: #fff;
+    width: 32px; height: 32px; border-radius: 50%;
     font-size: 0.95rem; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    transition: background 0.2s;
   }
-  .nav button:hover { background: var(--primary-dark); }
   .nav button:disabled { background: #c8d1d8; cursor: not-allowed; }
   .nav .pageinfo {
     font-size: 0.85rem; color: var(--text-soft);
+    min-width: 56px; text-align: center;
     font-variant-numeric: tabular-nums;
-    min-width: 50px; text-align: center;
   }
-  .nav .hint {
-    font-size: 0.75rem; color: var(--text-mute);
-    margin-left: 6px;
+  .nav select {
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 12px; font-size: 0.8rem; color: var(--text-soft);
+    background: #fff; max-width: 220px;
   }
-
-  /* ── 진행 바 ─────────────────────────── */
+  .nav .hint { font-size: 0.72rem; color: var(--text-mute); }
   .progress {
     position: fixed; top: 0; left: 0;
     height: 3px; background: var(--primary);
-    transition: width 0.3s ease;
-    z-index: 101;
+    transition: width 0.3s ease; z-index: 101;
   }
 
-  @media (max-width: 800px) {
-    .slide { padding: 30px 20px; }
-    .slide-inner { padding: 32px 24px; min-height: 80vh; }
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
-    h2 { font-size: 1.5rem; }
-    .slide-inner.hero h1 { font-size: 2.2rem; }
+  @media (max-width: 1100px) {
+    .slide { padding: 20px 24px; }
+    .slide-inner { padding: 22px 24px; }
+    .slide-body { grid-template-columns: 1fr; }
+    .mock-wrap { overflow: visible; }
   }
 </style>
 </head>
@@ -265,461 +460,842 @@
 
 <div class="deck" id="deck">
 
-  <!-- ──────────────────── 1. 표지 ──────────────────── -->
-  <div class="slide active">
+  <!-- ─── 1. 표지 ─── -->
+  <div class="slide active" data-title="표지">
     <div class="slide-inner hero">
       <h1>sGMP Invoice Generator</h1>
-      <div class="sub">Google Maps Platform 정산 자동화 시스템</div>
-      <div class="sub" style="font-size:1rem; opacity:0.8;">SPH 사용 설명서</div>
-      <div class="meta">버전 2026.05 · 사내 전용</div>
+      <div class="sub">화면별 사용 가이드</div>
+      <div class="sub" style="font-size:1rem; opacity:0.85; margin-top:6px;">
+        각 슬라이드는 실제 화면 한 장과 그 화면에서 할 일을 설명합니다
+      </div>
+      <div class="meta">SPH · 사내 전용</div>
     </div>
   </div>
 
-  <!-- ──────────────────── 2. 시스템 개요 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 2. 사이드바 첫 진입 ─── -->
+  <div class="slide" data-title="화면 1: 첫 진입 — CSV 업로드">
     <div class="slide-inner">
-      <div class="chip">개요</div>
-      <h2>이 시스템이 하는 일</h2>
-      <p class="lead">Google Cloud 에서 받은 청구 CSV 와 사내 Price List 엑셀을 입력받아,
-        고객사별로 GMP 인보이스를 자동 생성합니다. 단일 회사 정산과 전체 일괄 정산 두 모드를 지원합니다.</p>
-      <div class="grid-3">
-        <div class="feature">
-          <h3>① 입력</h3>
-          <p>월별 청구 CSV (회사 전체 한 파일) + 단가 기준이 되는 Price List xlsx</p>
-        </div>
-        <div class="feature">
-          <h3>② 처리</h3>
-          <p>회사별 SKU 추출 → Waterfall(무료 한도 → tier 단가) 적용 → KRW 환산</p>
-        </div>
-        <div class="feature">
-          <h3>③ 출력</h3>
-          <p>회사별 Invoice.xlsx (+ 옵션 PDF). 일괄 모드는 회사별 폴더로 ZIP 묶음</p>
-        </div>
+      <div class="slide-header">
+        <div class="slide-chip">화면 1</div>
+        <div class="slide-title">앱 첫 진입 — 사이드바에 CSV 올리기</div>
+        <div class="slide-sub">앱을 열면 본문은 비어 있고, 좌측 사이드바 상단에 CSV 업로더가 보입니다.</div>
       </div>
-      <div class="callout">
-        <strong>단일 진실 소스 원칙:</strong> "어떤 SKU 가 쓰였는가" 는 CSV, "각 SKU 의 단가/무료한도" 는 Price List 만 본다.
-        중간 정의 파일(master_data.csv 등) 은 정산 경로에서 더 이상 참조하지 않는다.
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body">
+              <div class="mock-side">
+                <div class="mock-section-title">📁 CSV 업로드</div>
+                <div class="mock-uploader" style="position:relative;">
+                  파일을 끌어다 놓거나<br>
+                  <div class="browse">파일 선택</div>
+                  <div class="hotspot" style="top:-8px; right:-8px;">1</div>
+                </div>
+                <div class="mock-section-title" style="margin-top:8px; color:var(--text-mute);">📁 Price List</div>
+                <div class="mock-uploader" style="opacity:0.5;">USD 단가표</div>
+                <div class="mock-uploader" style="opacity:0.5;">KRW 단가표</div>
+              </div>
+              <div class="mock-main">
+                <div style="color:var(--text-mute); text-align:center; padding:60px 0;">
+                  CSV 를 먼저 업로드해 주세요.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>CSV 업로더 영역</strong> 에 Google Cloud Console 에서 받은 월별 청구 CSV (회사 전체 합본) 를 끌어다 놓거나 <span class="pill">파일 선택</span> 클릭.
+            </div>
+          </div>
+          <div class="step-tip">
+            <strong>💡 CSV 한 파일에 모든 회사</strong> 가 들어 있어야 합니다. 회사 분리는 시스템이 자동으로 함.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 3. 메인 화면 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 3. CSV 업로드 후 ─── -->
+  <div class="slide" data-title="화면 2: CSV 업로드 직후">
     <div class="slide-inner">
-      <div class="chip">UI 구조</div>
-      <h2>메인 화면 구성</h2>
-      <div class="grid-2">
-        <div class="feature">
-          <h3>📂 사이드바 (좌)</h3>
-          <p>월별 청구 CSV 업로드 / Price List(USD·KRW) 업로드 / 통화 자동 감지 / 정산월 자동 감지</p>
-        </div>
-        <div class="feature">
-          <h3>📋 본문 (우)</h3>
-          <p>일괄 모드 토글 (기본 ON) / 회사 선택 / 옵션 / 정산 실행 / 결과 + 다운로드</p>
-        </div>
+      <div class="slide-header">
+        <div class="slide-chip">화면 2</div>
+        <div class="slide-title">CSV 올린 직후 — 정산월/회사 수 자동 표시</div>
+        <div class="slide-sub">CSV 파싱이 완료되면 사이드바에 정산월·회사 수가 자동으로 잡힙니다.</div>
       </div>
-      <p class="lead" style="margin-top:24px;">
-        화면 상단의 <strong>"전체 일괄 정산 모드"</strong> 토글을 <strong>OFF</strong> 하면 단일 회사 정산 화면으로 전환됩니다.
-      </p>
-      <div class="mock">
-<span class="muted">┌─── 사이드바 ───┐  ┌─── 본문 ────────────────────────┐</span>
-<span class="muted">│</span> <span class="accent">📁 CSV</span>          <span class="muted">│  │</span> <span class="ok">☑ 전체 일괄 정산 모드</span>           <span class="muted">│</span>
-<span class="muted">│</span> <span class="accent">📁 Price List</span>   <span class="muted">│  │</span>                                  <span class="muted">│</span>
-<span class="muted">│</span> 통화: USD     <span class="muted">│  │</span> <span class="accent">📋 회사 선택</span> (60개)             <span class="muted">│</span>
-<span class="muted">│</span> 정산월:       <span class="muted">│  │</span>   <span class="muted">🔍 검색창</span>                    <span class="muted">│</span>
-<span class="muted">│</span> 2026-04      <span class="muted">│  │</span>   ☑ 회사A   ☐ 회사B   …          <span class="muted">│</span>
-<span class="muted">└──────────────┘  │</span>                                  <span class="muted">│</span>
-                  <span class="muted">│</span> <span class="ok">▶ 전체 정산 시작 (12개사)</span>       <span class="muted">│</span>
-                  <span class="muted">└──────────────────────────────────┘</span>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body">
+              <div class="mock-side" style="position:relative;">
+                <div class="mock-section-title">📁 CSV 업로드</div>
+                <div class="mock-uploader filled">
+                  ✓ billing.csv (3.2 MB)
+                </div>
+                <div style="font-size:0.72rem; color:var(--text-soft); margin-top:2px;">
+                  📅 정산월: <strong>2026-04</strong>
+                </div>
+                <div style="font-size:0.72rem; color:var(--text-soft);">
+                  🏢 회사 수: <strong>61개</strong>
+                </div>
+                <div class="hotspot" style="top:54px; right:-10px;">1</div>
+                <div class="mock-section-title" style="margin-top:10px;">📁 Price List</div>
+                <div class="mock-uploader">USD 단가표</div>
+                <div class="hotspot" style="top:160px; right:-10px;">2</div>
+                <div class="mock-uploader">KRW 단가표</div>
+              </div>
+              <div class="mock-main">
+                <div style="color:var(--text-mute); text-align:center; padding:60px 0;">
+                  Price List 도 업로드해 주세요.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>자동 감지된 정보 확인</strong> — 정산월(YYYY-MM) 과 회사 수가 표시됨. CSV 가 올바르면 그대로 두고 다음 단계로.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>다음으로 Price List 업로드</strong> — USD/KRW 두 칸이 분리되어 있습니다. 사내 단가표 엑셀을 통화별로 따로 올려 주세요.
+            </div>
+          </div>
+          <div class="step-tip warn">
+            <strong>⚠ 정산월이 틀리면:</strong> CSV 가 잘못된 월 데이터를 포함한 경우. 사이드바의 정산월 셀렉트를 수동 변경하세요.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 4. 파일 업로드 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 4. Price List 업로드 + 통화 자동 감지 ─── -->
+  <div class="slide" data-title="화면 3: Price List 업로드">
     <div class="slide-inner">
-      <div class="chip">1단계 — 파일 업로드</div>
-      <h2>CSV + Price List 올리기</h2>
-      <ul class="step-list">
-        <li>
-          <div class="step-num">1</div>
-          <div class="step-body">
-            <strong>월별 청구 CSV 업로드</strong>
-            <span>Google Cloud Console 에서 다운받은 그달의 청구 CSV (모든 회사 합본). 사이드바 상단 "📁 CSV 업로드" 영역에 드래그.</span>
+      <div class="slide-header">
+        <div class="slide-chip">화면 3</div>
+        <div class="slide-title">Price List 업로드 — 통화 자동 감지</div>
+        <div class="slide-sub">USD/KRW 두 단가표를 올리면 시스템이 CSV 데이터를 보고 사용할 통화를 자동 선택합니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body">
+              <div class="mock-side" style="position:relative;">
+                <div class="mock-section-title">📁 CSV 업로드</div>
+                <div class="mock-uploader filled">✓ billing.csv</div>
+                <div class="mock-section-title" style="margin-top:6px;">📁 Price List</div>
+                <div class="mock-uploader filled">✓ USD 단가표</div>
+                <div class="mock-uploader filled">✓ KRW 단가표</div>
+                <div class="hotspot" style="top:90px; right:-10px;">1</div>
+                <div style="margin-top:8px; padding:8px; background:var(--card); border:1px solid var(--mock-border); border-radius:6px; font-size:0.75rem;">
+                  💱 사용 통화: <strong style="color:var(--primary);">USD</strong> (자동)
+                </div>
+                <div class="hotspot" style="top:225px; right:-10px;">2</div>
+              </div>
+              <div class="mock-main">
+                <div class="mock-callout success">
+                  ✅ 준비 완료. 본문에서 정산 모드를 선택하세요.
+                </div>
+              </div>
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">2</div>
-          <div class="step-body">
-            <strong>Price List xlsx 업로드 (USD / KRW)</strong>
-            <span>SKU 별 단가·무료한도 기준표. USD 단가표·KRW 단가표를 통화별로 따로 보관. 시스템이 청구 CSV 의 환산 통화를 자동 감지해 둘 중 알맞은 걸 사용.</span>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>USD / KRW 두 단가표 모두 업로드</strong> — 둘 다 올려야 회사별 청구 통화에 맞게 자동 선택됨.
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">3</div>
-          <div class="step-body">
-            <strong>자동 감지 확인</strong>
-            <span>정산월(예: 2026-04)·통화(USD/KRW) 가 사이드바에 자동 표시됨. 다르면 수동 조정 가능.</span>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>통화 자동 감지 결과 확인</strong> — Price List 단가 셀의 값 분포로 USD/KRW 자동 판단. 보통 그대로 두면 됨.
+            </div>
           </div>
-        </li>
-      </ul>
-      <div class="callout warn">
-        <strong>주의:</strong> CSV 가 잘못된 월 데이터를 포함하면 "정산월" 을 수동으로 맞춰 주세요. 자동 감지는 인보이스 날짜 행을 읽는 방식입니다.
+          <div class="step-tip">
+            <strong>💡 자동 감지 원리:</strong> 단가 셀의 최댓값이 100 미만이면 USD, 이상이면 KRW.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 5. 단일 정산 - 회사 선택 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 5. 본문 — 모드 토글 ─── -->
+  <div class="slide" data-title="화면 4: 본문 — 정산 모드 선택">
     <div class="slide-inner">
-      <div class="chip">단일 정산 모드</div>
-      <h2>회사 1개 정산하기 — 회사 선택</h2>
-      <p class="lead">상단 토글을 OFF 로 바꾸면 단일 정산 모드. 결제 계정 (회사) 을 하나 골라 그 회사만 정산합니다.</p>
-      <ul class="step-list">
-        <li>
-          <div class="step-num">1</div>
-          <div class="step-body">
-            <strong>🔍 결제 계정 검색</strong>
-            <span>회사명 일부 입력 → 부분 문자열 매칭. 예: "splyt" 입력 시 "splyt" 가 이름에 포함된 회사만 표시. (부분수열 매칭 X)</span>
+      <div class="slide-header">
+        <div class="slide-chip">화면 4</div>
+        <div class="slide-title">본문 상단 — 정산 모드 토글</div>
+        <div class="slide-sub">한 회사만 정산할지, 여러 회사 한꺼번에 정산할지 토글로 선택합니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body">
+              <div class="mock-side"><div style="color:var(--text-mute); font-size:0.75rem;">(사이드바)</div></div>
+              <div class="mock-main" style="position:relative;">
+                <div style="display:flex; align-items:center; gap:14px; padding:8px 10px; background:var(--mock-bg); border-radius:8px;">
+                  <div class="mock-toggle">
+                    <div class="sw"></div>
+                    <span>전체 일괄 정산 모드</span>
+                  </div>
+                  <div class="hotspot" style="position:static; box-shadow:none;">1</div>
+                </div>
+                <div style="color:var(--text-mute); font-size:0.78rem;">
+                  체크한 회사들을 한 번에 정산해 회사별 폴더로 zip 다운로드.
+                </div>
+                <div style="border-top:1px dashed var(--border); padding-top:10px; margin-top:6px;">
+                  <div class="mock-section-title">📋 회사 선택 (61개)</div>
+                  <div style="color:var(--text-mute); font-size:0.78rem; padding:18px; text-align:center;">
+                    (회사 테이블이 여기 렌더됨 — 다음 화면 참고)
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">2</div>
-          <div class="step-body">
-            <strong>드롭다운에서 선택</strong>
-            <span>검색 결과 좁혀진 후 드롭다운에서 정산할 회사 선택. 이전 선택은 자동 복원.</span>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>토글 ON (기본값)</strong> = 일괄 정산 모드. 여러 회사 동시 처리 → ZIP 다운로드.<br>
+              <strong>토글 OFF</strong> = 단일 정산 모드. 회사 1개만 골라 정산 → 엑셀 자동 다운로드.
+            </div>
           </div>
-        </li>
-      </ul>
-      <div class="callout">
-        <strong>💡 검색 팁:</strong> 회사 정식 명칭 일부만 입력하면 됩니다. 대소문자 무관, 한글 정규화도 적용됨.
+          <div class="step-tip">
+            <strong>💡 평소엔 일괄 ON</strong> 으로 두고, 특정 회사 한 곳만 다시 정산할 때 OFF 로 전환하는 게 일반적.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 6. 단일 정산 - 옵션 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 6. 일괄 — 회사 선택 테이블 전체 ─── -->
+  <div class="slide" data-title="화면 5: 일괄 정산 — 메인 화면">
     <div class="slide-inner">
-      <div class="chip">단일 정산 모드</div>
-      <h2>옵션 설정 → 정산 실행</h2>
-      <div class="grid-2">
-        <div class="feature">
-          <h3>환율 / 기준일 / 은행</h3>
-          <p>USD 회사면 환율 입력. 환율 적용 기준일(보통 전월 말일 영업일) 과 송금 은행명도 함께 표기.</p>
+      <div class="slide-header">
+        <div class="slide-chip">화면 5 · 일괄 정산</div>
+        <div class="slide-title">일괄 정산 메인 화면 한눈에</div>
+        <div class="slide-sub">검색창, 회사 테이블, 일괄 입력, 정책, 정산 시작 버튼이 위에서 아래로 배치됩니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:600px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-toggle"><div class="sw"></div><span>전체 일괄 정산 모드</span></div>
+                <div class="mock-section-title" style="margin-top:6px;">📋 회사 선택 (61개)</div>
+                <div class="mock-input"><span>🔍</span><span style="color:var(--text-mute);">회사명 일부를 입력하면 해당 회사만 표시됩니다</span></div>
+                <div class="hotspot" style="top:104px; right:8px;">1</div>
+                <table class="mock-table">
+                  <tr>
+                    <td class="center" style="width:30px;"><div class="mock-check"><div class="cb on"></div></div></td>
+                    <td>Air Incheon<div class="meta-cell">회사통합 · ,2 · Proj✓ · 최소- · hidden 0 · 직접등록 0</div></td>
+                    <td style="width:80px;">하나은행</td>
+                  </tr>
+                  <tr>
+                    <td class="center"><div class="mock-check"><div class="cb on"></div></div></td>
+                    <td>BespinGlobal-TeamO2<div class="meta-cell">프로젝트별 · ,2 · Proj✓ · 최소 KRW 500,000</div></td>
+                    <td>하나은행</td>
+                  </tr>
+                  <tr>
+                    <td class="center"><div class="mock-check"><div class="cb"></div></div></td>
+                    <td>Geosurvey 🆕<div class="meta-cell">회사통합 · ,0 · Proj✗ · 최소-</div></td>
+                    <td>하나은행</td>
+                  </tr>
+                </table>
+                <div class="hotspot" style="top:180px; right:8px;">2</div>
+                <div class="mock-callout info" style="margin-top:4px;">💱 일괄 입력 (USD 회사에만 적용) · 환율 / 환율 날짜</div>
+                <div class="hotspot" style="top:320px; right:8px;">3</div>
+                <div class="mock-radio" style="font-size:0.78rem;">
+                  <label><div class="r on"></div>그대로</label>
+                  <label><div class="r"></div>건너뛰기</label>
+                  <label><div class="r"></div>노출로 이동</label>
+                </div>
+                <div class="hotspot" style="top:360px; right:8px;">4</div>
+                <div class="mock-btn primary full">▶ 전체 정산 시작 (2개사)</div>
+                <div class="hotspot" style="top:402px; right:8px;">5</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="feature">
-          <h3>과금 방식</h3>
-          <p>"회사 통합" (기본) vs "프로젝트별" 선택. 후자는 프로젝트마다 별도 시트.</p>
-        </div>
-        <div class="feature">
-          <h3>SKU 노출 순서</h3>
-          <p>드래그로 인보이스 표시 순서 조정. 미노출 SKU 지정 가능.</p>
-        </div>
-        <div class="feature">
-          <h3>직접 등록 SKU</h3>
-          <p>사용량 0 이라도 빈 라인으로 인보이스에 노출하고 싶은 SKU 추가.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>검색창</strong>: 회사명 일부 입력 → 그 회사만 표시. 다음 화면에서 자세히.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>회사 테이블</strong>: 체크박스로 정산할 회사 선택. 메타정보로 회사별 저장 옵션 한눈에.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>일괄 입력</strong>: USD 회사 환율을 한 번에 동기화. 회사별로 따로 조정도 가능.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-text"><strong>비용발생 SKU 정책</strong>: 미노출 처리한 SKU 중 비용 발생 시 어떻게 할지 선택.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-text"><strong>"전체 정산 시작" 클릭</strong> → 화면 dim + 진행 카드 등장.</div>
+          </div>
         </div>
       </div>
-      <p class="lead" style="margin-top:24px;">
-        설정이 끝나면 우측의 <strong>"▶ 정산 실행"</strong> 버튼 클릭. 1~3초 후 결과 영역에 인보이스가 표시되며 엑셀이 자동 다운로드.
-      </p>
     </div>
   </div>
 
-  <!-- ──────────────────── 7. 일괄 정산 - 테이블 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 7. 일괄 — 검색창 사용 ─── -->
+  <div class="slide" data-title="화면 6: 일괄 — 회사 검색">
     <div class="slide-inner">
-      <div class="chip">일괄 정산 모드</div>
-      <h2>회사 선택 테이블 보는 법</h2>
-      <p class="lead">체크박스로 정산할 회사들을 골라 한 번에 처리. 각 행에 표시되는 메타정보로 회사별 저장된 설정을 한눈에 확인.</p>
-      <div class="mock">
-☑ <span class="accent">Air Incheon</span>
-   <span class="muted">회사통합 · ,2 · Proj✓ · 최소- · hidden 0 · 직접등록 0</span>
-
-☑ <span class="accent">BespinGlobal-TeamO2</span>
-   <span class="muted">프로젝트별 · ,2 · Proj✓ · 최소 KRW 500,000 · hidden 2 · 직접등록 1</span>
-
-☐ <span class="accent">Geosurvey</span>  <span class="ok">🆕 신규</span>
-   <span class="muted">회사통합 · ,0 · Proj✗ · 최소- · hidden 0 · 직접등록 0</span>
+      <div class="slide-header">
+        <div class="slide-chip">화면 6 · 일괄 정산</div>
+        <div class="slide-title">검색창으로 회사 좁히기</div>
+        <div class="slide-sub">부분 문자열 매칭. 입력한 글자가 회사명 안에 연속으로 있어야 매칭됩니다.</div>
       </div>
-      <div class="callout">
-        <strong>🆕 신규</strong> 마커: 이전에 본 적 없는 회사. CSV 에 새로 등장한 회사는 기본 체크된 상태로 보여줍니다.
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:600px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-section-title">📋 회사 선택 (61개)</div>
+                <div class="mock-input"><span>🔍</span><strong style="color:var(--text);">bespin</strong></div>
+                <div class="hotspot" style="top:64px; right:8px;">1</div>
+                <table class="mock-table">
+                  <tr><td class="center" style="width:30px;"><div class="mock-check"><div class="cb on"></div></div></td><td>BespinGlobal-TeamO2</td></tr>
+                  <tr><td class="center"><div class="mock-check"><div class="cb on"></div></div></td><td>Bespinglobal-Myrealtrip</td></tr>
+                  <tr><td class="center"><div class="mock-check"><div class="cb"></div></div></td><td>Bespinglobal-Socar</td></tr>
+                  <tr><td class="center"><div class="mock-check"><div class="cb"></div></div></td><td>Bespinglobal-Vanpl</td></tr>
+                </table>
+                <div class="hotspot" style="top:110px; right:8px;">2</div>
+                <div style="font-size:0.78rem; color:var(--text-mute); padding-top:6px;">
+                  4개 / 61개 표시 중
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>회사명 일부 입력</strong> — 예: <span class="pill">bespin</span> 입력하면 "bespin" 이 들어간 회사들만 표시.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>체크박스 조정</strong> — 검색된 회사 중 정산할 것만 체크. 검색어를 지우면 다시 전체 보임.</div>
+          </div>
+          <div class="step-tip warn">
+            <strong>주의:</strong> <span class="pill">splyt</span> 처럼 글자가 떨어진 패턴은 매칭 안 됨. 회사명 안에 그 순서 그대로 붙어 있어야 매칭.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 8. 메타정보 6가지 해석 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 8. 일괄 — 메타정보 해석 ─── -->
+  <div class="slide" data-title="화면 7: 일괄 — 메타정보 6항목">
     <div class="slide-inner">
-      <div class="chip">일괄 정산 모드 · 메타정보</div>
-      <h2>메타정보 6항목, 각각 무슨 뜻?</h2>
-      <table class="meta-table">
-        <thead>
-          <tr><th>#</th><th>표기 예</th><th>의미</th></tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>1</td>
-            <td class="code">회사통합</td>
-            <td>과금 방식. 결제계정 단위로 SKU usage 합쳐 waterfall. <span class="pill">프로젝트별</span> 면 프로젝트 시트 분리.</td>
-          </tr>
-          <tr>
-            <td>2</td>
-            <td class="code">,2</td>
-            <td>소계 소수점 자릿수. USD = ,2 / KRW = ,0 이 기본.</td>
-          </tr>
-          <tr>
-            <td>3</td>
-            <td class="code">Proj✓ / Proj✗</td>
-            <td>프로젝트 시트 포함 여부. ✓ 면 "Project" 시트 추가.</td>
-          </tr>
-          <tr>
-            <td>4</td>
-            <td class="code">최소-</td>
-            <td>월 최소사용비용 미적용. <span class="pill">최소 KRW 500,000</span> 처럼 금액 표시되면 적용 중.</td>
-          </tr>
-          <tr>
-            <td>5</td>
-            <td class="code">hidden 0</td>
-            <td>인보이스에서 숨길 SKU 개수.</td>
-          </tr>
-          <tr>
-            <td>6</td>
-            <td class="code">직접등록 0</td>
-            <td>사용량 0 이어도 빈 라인으로 노출할 SKU 개수.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ──────────────────── 9. 일괄 입력 ──────────────────── -->
-  <div class="slide">
-    <div class="slide-inner">
-      <div class="chip">일괄 정산 모드 · 환율 일괄 입력</div>
-      <h2>환율 한 번에 입력하기</h2>
-      <p class="lead">USD 단가표를 쓰는 회사들에 환율을 동시 적용. 회사별로 따로 조정도 가능.</p>
-      <ul class="step-list">
-        <li>
-          <div class="step-num">1</div>
-          <div class="step-body">
-            <strong>일괄 환율 입력</strong>
-            <span>"💱 일괄 입력 (USD 회사에만 적용)" 영역에 환율(₩/$) + 환율 날짜 입력. → 체크된 USD 회사 전체 자동 동기화.</span>
-          </div>
-        </li>
-        <li>
-          <div class="step-num">2</div>
-          <div class="step-body">
-            <strong>회사별 개별 조정 (선택)</strong>
-            <span>회사 행에서 환율값/기준일/은행/문구를 회사별로 다르게 설정 가능. 회사별로 마지막 저장값이 다음 정산에 자동 반영.</span>
-          </div>
-        </li>
-        <li>
-          <div class="step-num">3</div>
-          <div class="step-body">
-            <strong>KRW 단가표 회사</strong>
-            <span>환율 불필요 → 입력 무시.</span>
-          </div>
-        </li>
-      </ul>
-    </div>
-  </div>
-
-  <!-- ──────────────────── 10. 정책 옵션 ──────────────────── -->
-  <div class="slide">
-    <div class="slide-inner">
-      <div class="chip">일괄 정산 모드 · 비용발생 SKU 정책</div>
-      <h2>"미노출 지정한 SKU 에 비용이 있을 때" 처리</h2>
-      <p class="lead">사용자가 미노출(hidden) 처리한 SKU 중 무료 한도를 초과한 항목(=실제 청구액 발생) 이 있으면,
-        엑셀 총액이 실제 청구액보다 적게 나옴. 이 경우 어떻게 처리할지 선택:</p>
-      <div class="grid-3">
-        <div class="feature">
-          <h3>그대로 (as_is)</h3>
-          <p>경고만 띄우고 미노출 그대로 정산. 사용자가 결과 검토 후 직접 판단.</p>
-        </div>
-        <div class="feature">
-          <h3>건너뛰기 (skip)</h3>
-          <p>비용발생 SKU 있는 회사는 정산 스킵. 정산 결과에 포함 안 됨.</p>
-        </div>
-        <div class="feature">
-          <h3>노출로 이동 (move)</h3>
-          <p>해당 SKU 를 hidden 에서 빼고 인보이스 끝에 추가 후 재정산. 영구 저장됨.</p>
-        </div>
+      <div class="slide-header">
+        <div class="slide-chip">화면 7 · 일괄 정산</div>
+        <div class="slide-title">회사 행의 "메타정보" 6항목 해석</div>
+        <div class="slide-sub">회사명 아래 회색 작은 글씨가 각 회사의 저장된 옵션 요약입니다.</div>
       </div>
-      <div class="callout warn">
-        <strong>권장:</strong> 평소엔 <span class="pill">그대로</span> 두고 회사별 정산 로그에서 ⚠ 표시를 보고 개별 대응.
-      </div>
-    </div>
-  </div>
-
-  <!-- ──────────────────── 11. 정산 진행 화면 ──────────────────── -->
-  <div class="slide">
-    <div class="slide-inner">
-      <div class="chip">정산 실행 화면</div>
-      <h2>정산 중에는 화면이 dim 됩니다</h2>
-      <p class="lead">"▶ 전체 정산 시작" 클릭 → 화면 전체가 반투명 검정으로 덮이고 가운데 진행 카드 등장.
-        다른 위젯은 클릭해도 반응 없음 (오해/오클릭 방지).</p>
-      <div class="mock">
-<span class="muted">┌─────────────────────────────────┐</span>
-<span class="muted">│</span>  <span class="accent">◐</span>  <strong>정산 진행 중</strong>             <span class="muted">│</span>
-<span class="muted">│</span>                                <span class="muted">│</span>
-<span class="muted">│</span>      <span class="accent">12 / 61</span>                  <span class="muted">│</span>
-<span class="muted">│</span>  <span class="ok">████████░░░░░░░░░░░░</span>      <span class="muted">│</span>
-<span class="muted">│</span>                                <span class="muted">│</span>
-<span class="muted">│</span>  현재: bespinglobal-myrealtrip   <span class="muted">│</span>
-<span class="muted">│</span>  <span class="muted">평균 1.8초/사 · 남은 약 1분 30초</span>  <span class="muted">│</span>
-<span class="muted">└─────────────────────────────────┘</span>
-      </div>
-      <div class="grid-2" style="margin-top:18px;">
-        <div class="feature">
-          <h3>🔄 회전 스피너</h3>
-          <p>제목 옆 링이 계속 돌아 "살아있음" 신호. 멈춘 게 아님.</p>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div style="text-align:center;">
+            <div style="background:var(--mock-bg); border:1px solid var(--mock-border); border-radius:10px; padding:18px 24px; font-size:0.95rem;">
+              <strong style="color:var(--text);">BespinGlobal-TeamO2</strong>
+              <div style="margin-top:8px; font-size:0.85rem; color:var(--text-mute); font-family:monospace;">
+                <span style="border-bottom:2px solid var(--primary);">회사통합</span>
+                ·
+                <span style="border-bottom:2px solid var(--success);">,2</span>
+                ·
+                <span style="border-bottom:2px solid var(--warn);">Proj✓</span>
+                ·
+                <span style="border-bottom:2px solid var(--danger);">최소 KRW 500,000</span>
+                ·
+                <span style="border-bottom:2px solid #8a4ce0;">hidden 2</span>
+                ·
+                <span style="border-bottom:2px solid #d4647f;">직접등록 1</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="feature">
-          <h3>✨ 진행바 시머</h3>
-          <p>회사 1개 처리 중에도 빛이 좌→우 흐름. 완료 시 ✓ 표시로 전환.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong style="border-bottom:2px solid var(--primary);">회사통합</strong> — 결제계정 단위 합산 정산. <span class="pill">프로젝트별</span> 이면 프로젝트마다 시트 분리.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong style="border-bottom:2px solid var(--success);">,2</strong> — 소수점 자릿수. USD 기본 2, KRW 기본 0.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong style="border-bottom:2px solid var(--warn);">Proj✓</strong> — 엑셀에 Project 시트 포함. ✗ 면 Invoice 시트만.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-text"><strong style="border-bottom:2px solid var(--danger);">최소 KRW 500,000</strong> — 월 최소사용비용 적용. <span class="pill">최소-</span> 면 미적용.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-text"><strong style="border-bottom:2px solid #8a4ce0;">hidden 2</strong> — 인보이스에서 숨기는 SKU 2개.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">6</div>
+            <div class="step-text"><strong style="border-bottom:2px solid #d4647f;">직접등록 1</strong> — 사용량 0 이어도 빈 라인으로 노출하는 SKU 1개.</div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 12. 정합성 검사 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 9. 일괄 — 일괄 입력 + 정책 ─── -->
+  <div class="slide" data-title="화면 8: 일괄 — 환율 일괄 입력 + 정책">
     <div class="slide-inner">
-      <div class="chip">자동 안전장치</div>
-      <h2>엑셀 자체 정합성 검사</h2>
-      <p class="lead">외부 발송 전 사고를 막기 위해, 정산 후 생성된 엑셀을 자동으로 다시 검사합니다.</p>
-      <div class="grid-2">
-        <div class="feature">
-          <h3>🔍 위험 수식 패턴</h3>
-          <p><span class="pill">*0</span> <span class="pill">*0.0</span> 같은 곱하기-0 수식 (청구액 0 사고)</p>
+      <div class="slide-header">
+        <div class="slide-chip">화면 8 · 일괄 정산</div>
+        <div class="slide-title">환율 일괄 입력 + 비용발생 정책</div>
+        <div class="slide-sub">정산 시작 직전, 마지막으로 설정할 두 영역.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:580px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-section-title">💱 일괄 입력 (USD 회사에만 적용)</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <div>
+                    <div class="mock-label">환율 (₩/$)</div>
+                    <div class="mock-input">1400.00</div>
+                  </div>
+                  <div>
+                    <div class="mock-label">환율 날짜</div>
+                    <div class="mock-input">2026-04-30</div>
+                  </div>
+                </div>
+                <div class="hotspot" style="top:62px; right:8px;">1</div>
+                <div class="mock-section-title" style="margin-top:8px;">미노출 SKU 비용발생 시 정책</div>
+                <div class="mock-radio">
+                  <label><div class="r on"></div>그대로</label>
+                  <label><div class="r"></div>건너뛰기</label>
+                  <label><div class="r"></div>노출로 이동</label>
+                </div>
+                <div class="hotspot" style="top:182px; right:8px;">2</div>
+                <div class="mock-callout warn" style="margin-top:10px;">
+                  ⚠ 평소 권장: "그대로" — 경고만 보고 회사별 개별 대응.
+                </div>
+                <div class="mock-btn primary full" style="margin-top:8px;">▶ 전체 정산 시작 (12개사)</div>
+                <div class="hotspot" style="top:282px; right:8px;">3</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="feature">
-          <h3>🔍 빈 수식 / 참조 오류</h3>
-          <p><span class="pill">SUM()</span> <span class="pill">#REF!</span> <span class="pill">#NAME?</span> 탐지</p>
-        </div>
-        <div class="feature">
-          <h3>🔍 SKU 누락</h3>
-          <p>Python 이 계산한 SKU 가 엑셀 시트에 빠져 있는지 대조</p>
-        </div>
-        <div class="feature">
-          <h3>🚨 발견 시</h3>
-          <p>결과 영역 상단에 빨간 박스 + 상세 expander 자동 펼침. 발송 전 반드시 확인.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text">
+              <strong>환율 입력 (USD 회사용)</strong> — 환율값 + 환율 날짜. 체크된 USD 회사들에 일괄 적용. 회사 행에서 개별 조정도 가능.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text">
+              <strong>정책 선택</strong> — 미노출 처리한 SKU 에 비용이 잡힌 경우의 처리 방법:<br>
+              · <span class="pill">그대로</span>: 경고만 띄움<br>
+              · <span class="pill">건너뛰기</span>: 그 회사 정산 스킵<br>
+              · <span class="pill">노출로 이동</span>: hidden 해제 후 재정산
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text">
+              <strong>"▶ 전체 정산 시작" 클릭</strong> — 다음 화면(오버레이) 으로 진입.
+            </div>
+          </div>
         </div>
       </div>
-      <div class="callout danger">
-        <strong>경고 발생 회사는 ZIP 다운로드는 되지만 외부 발송 전 반드시 해당 엑셀을 열어 확인하세요.</strong>
+    </div>
+  </div>
+
+  <!-- ─── 10. 일괄 — 진행 중 오버레이 ─── -->
+  <div class="slide" data-title="화면 9: 정산 진행 중 — dim 오버레이">
+    <div class="slide-inner">
+      <div class="slide-header">
+        <div class="slide-chip">화면 9 · 일괄 정산</div>
+        <div class="slide-title">정산 중 — 화면 dim + 진행 카드</div>
+        <div class="slide-sub">정산이 끝날 때까지 화면 전체가 어두워지고 가운데 카드 하나만 보입니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:540px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side" style="min-height:340px; position:relative;">
+              <div class="mock-main" style="opacity:0.3;">
+                <div class="mock-section-title">📋 회사 선택</div>
+                <div class="mock-input">검색…</div>
+                <div style="height:120px;"></div>
+              </div>
+              <div class="mock-overlay">
+                <div class="mock-overlay-card">
+                  <div class="mock-overlay-title-row">
+                    <div class="mock-spin"></div>
+                    <div class="ttl">정산 진행 중</div>
+                  </div>
+                  <div class="cnt">12 / 61</div>
+                  <div class="bar"><div></div></div>
+                  <div class="nm">현재: bespinglobal-myrealtrip</div>
+                  <div class="mt">평균 1.8초/사 · 남은 약 1분 30초</div>
+                </div>
+              </div>
+              <div class="hotspot" style="top:50%; left:50%; transform:translate(85px,-95px);">1</div>
+              <div class="hotspot" style="top:50%; left:50%; transform:translate(85px,-50px);">2</div>
+              <div class="hotspot" style="top:50%; left:50%; transform:translate(85px,-5px);">3</div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>회전 스피너</strong> — 계속 돌고 있으면 "살아있음" 신호. 멈춘 게 아님.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>큰 카운터 + 진행바</strong> — 12개사 처리 끝, 49개 남음. 진행바엔 좌→우 빛 흐르는 시머 애니메이션.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>현재 회사 + ETA</strong> — 지금 처리 중인 회사명, 평균 소요시간, 남은 시간 추정.</div>
+          </div>
+          <div class="step-tip">
+            <strong>💡 처리 중엔 본문/사이드바 클릭 차단됨.</strong> 오해/오클릭 방지용. 끝나면 자동으로 오버레이 사라짐.
+          </div>
+          <div class="step-tip warn">
+            <strong>오버레이가 안 사라지면:</strong> 드물게 세션 단절로 멈춤. <kbd>F5</kbd> 새로고침 후 재정산.
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 13. 결과 다운로드 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 11. 일괄 — 결과 (정상) ─── -->
+  <div class="slide" data-title="화면 10: 일괄 — 결과 (정상)">
     <div class="slide-inner">
-      <div class="chip">결과 다운로드</div>
-      <h2>정산 끝나면</h2>
-      <ul class="step-list">
-        <li>
-          <div class="step-num">✓</div>
-          <div class="step-body">
-            <strong>오버레이 사라지고 결과 영역 노출</strong>
-            <span>"결과 요약 (N/N 성공)" 헤더 + 정합성 경고(있다면) + 회사별 로그 expander.</span>
+      <div class="slide-header">
+        <div class="slide-chip">화면 10 · 일괄 정산</div>
+        <div class="slide-title">정산 완료 — 결과 영역 (이상 없는 경우)</div>
+        <div class="slide-sub">오버레이가 사라지고 결과 요약 + ZIP 다운로드 버튼이 보입니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:580px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div style="font-size:1.05rem; font-weight:700; color:var(--text);">결과 요약 (12/12 성공)</div>
+                <div class="hotspot" style="top:18px; right:8px;">1</div>
+                <div class="mock-expander">
+                  <div class="head">▸ 📋 회사별 정산 로그</div>
+                </div>
+                <div class="mock-expander">
+                  <div class="head">▸ ⏱ 단계별 소요시간 (디버그)</div>
+                </div>
+                <div class="hotspot" style="top:108px; right:8px;">2</div>
+                <div class="mock-btn primary full">📦 zip 다운로드 (전체정산_2026-04_20260526.zip)</div>
+                <div class="hotspot" style="top:170px; right:8px;">3</div>
+              </div>
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">📦</div>
-          <div class="step-body">
-            <strong>ZIP 다운로드 (일괄)</strong>
-            <span>"📦 zip 다운로드 (전체정산_YYYYMM_타임스탬프.zip)" 버튼 클릭. 회사별 폴더 안에 sGMP_Invoice_회사명.xlsx (+ .pdf) 들어 있음.</span>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>결과 요약 헤더</strong> — N/N 성공 표시. 모두 OK 면 안심.</div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">📄</div>
-          <div class="step-body">
-            <strong>개별 다운로드 (단일)</strong>
-            <span>단일 정산은 정산 직후 엑셀이 자동 다운로드. PDF 옵션 켜면 PDF 도 함께. 재다운로드 버튼도 제공.</span>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>접힌 expander 두 개</strong> — 필요할 때 펼쳐 확인:<br>
+              · 회사별 정산 로그 (각 회사 ✅/⚠/❌)<br>
+              · 단계별 소요시간 (디버그용)
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">⏱</div>
-          <div class="step-body">
-            <strong>단계별 소요시간 (디버그)</strong>
-            <span>결과 영역 하단 expander 에 회사별 전처리/계산/엑셀 생성 시간 보관. 평소엔 닫혀 있고 필요할 때 펼쳐 봄.</span>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>📦 zip 다운로드</strong> — 회사별 폴더로 묶인 ZIP. 클릭 즉시 다운로드.</div>
           </div>
-        </li>
-      </ul>
+          <div class="step-tip">
+            <strong>ZIP 내부 구조:</strong> <span class="pill">회사명/sGMP_Invoice_회사명.xlsx</span> (+ PDF 옵션 시 .pdf 도)
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 14. 자주 묻는 질문 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 12. 일괄 — 정합성 경고 화면 ─── -->
+  <div class="slide" data-title="화면 11: 일괄 — 정합성 경고 발생">
     <div class="slide-inner">
-      <div class="chip">FAQ · 문제 해결</div>
-      <h2>자주 묻는 질문</h2>
-      <ul class="step-list">
-        <li>
-          <div class="step-num">Q</div>
-          <div class="step-body">
-            <strong>일괄 정산이 너무 오래 걸려요</strong>
-            <span>회사 60개면 보통 1.5~2분 소요. 진행 카드의 "남은 약 N분" 으로 확인. 멈춰 보이면 회전 스피너 확인.</span>
+      <div class="slide-header">
+        <div class="slide-chip">화면 11 · 일괄 정산</div>
+        <div class="slide-title">🚨 정합성 경고가 뜬 경우</div>
+        <div class="slide-sub">자동 검사에서 위험 수식이 발견되면 결과 영역 상단에 빨간 박스가 표시됩니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:600px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div style="font-size:1.05rem; font-weight:700;">결과 요약 (12/12 성공)</div>
+                <div class="mock-callout">
+                  🚨 <strong>엑셀 정합성 경고가 발생한 회사 1개</strong> — 외부 발송 전 반드시 확인하세요.
+                </div>
+                <div class="hotspot" style="top:62px; right:8px;">1</div>
+                <div class="mock-expander">
+                  <div class="head">▾ 🚨 정합성 경고 상세</div>
+                  <div class="body">
+                    <strong>BespinGlobal-TeamO2</strong>
+                    <div style="margin-top:4px; font-family:monospace; font-size:0.78rem;">
+                      - [Invoice!I77] 0 곱하기 발견: =ROUND(I77*I78*0,2)
+                    </div>
+                  </div>
+                </div>
+                <div class="hotspot" style="top:140px; right:8px;">2</div>
+                <div class="mock-btn primary full" style="margin-top:8px;">📦 zip 다운로드</div>
+                <div class="hotspot" style="top:240px; right:8px;">3</div>
+              </div>
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">Q</div>
-          <div class="step-body">
-            <strong>🚨 정합성 경고가 떴어요</strong>
-            <span>결과 상단의 "정합성 경고 상세" expander 열어 어떤 셀에 어떤 패턴이 박혔는지 확인 → 해당 회사 엑셀 열어 직접 확인 → 필요 시 SKU 노출/미노출 재조정 후 재정산.</span>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>빨간 경고 박스</strong> — 몇 개 회사에 문제가 있는지 표시. 결과 요약 바로 아래에 등장.</div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">Q</div>
-          <div class="step-body">
-            <strong>회사가 검색되지 않아요</strong>
-            <span>회사명 일부를 정확히 입력. 부분수열(글자 떨어진 매칭) 안 됨 — 연속된 글자가 회사명 안에 그대로 있어야 함.</span>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>상세 expander 자동 펼침</strong> — 어떤 회사의 어떤 셀에 어떤 패턴이 박혔는지 표시. 위험 패턴 예:
+              <span class="pill">*0</span>, <span class="pill">SUM()</span>, <span class="pill">#REF!</span>.
+            </div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">Q</div>
-          <div class="step-body">
-            <strong>회사 옵션을 바꿨는데 다음 정산에 안 반영돼요</strong>
-            <span>"정산하기" 버튼을 한 번 더 눌러야 새 옵션으로 재계산됨. 옵션 변경만으로 자동 재계산 X.</span>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>다운로드는 가능</strong> — 하지만 외부 발송 전에 해당 회사 엑셀을 열어 직접 확인 필수.</div>
           </div>
-        </li>
-        <li>
-          <div class="step-num">Q</div>
-          <div class="step-body">
-            <strong>오버레이가 안 사라져요</strong>
-            <span>드물게 세션 단절 시 발생. <kbd>F5</kbd> 또는 페이지 새로고침으로 해결. 정산 결과는 백엔드에 안 남으므로 다시 정산 필요.</span>
+          <div class="step-tip danger">
+            <strong>경고 처리 절차:</strong> 해당 회사 엑셀 열기 → 문제 셀 확인 → 필요 시 SKU 노출/미노출 재조정 → 재정산.
           </div>
-        </li>
-      </ul>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- ──────────────────── 15. 마무리 ──────────────────── -->
-  <div class="slide">
+  <!-- ─── 13. 단일 — 모드 전환 후 화면 ─── -->
+  <div class="slide" data-title="화면 12: 단일 정산 — 결제 계정 선택">
+    <div class="slide-inner">
+      <div class="slide-header">
+        <div class="slide-chip">화면 12 · 단일 정산</div>
+        <div class="slide-title">단일 정산 — 결제 계정 검색 + 선택</div>
+        <div class="slide-sub">상단 토글을 OFF 로 바꾸면 단일 정산 화면. 회사 1개만 골라 정산합니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:580px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-toggle off"><div class="sw"></div><span>전체 일괄 정산 모드</span></div>
+                <div class="hotspot" style="top:18px; right:8px;">1</div>
+                <div class="mock-section-title" style="margin-top:8px;">정산 대상 선택</div>
+                <div class="mock-input"><span>🔍</span><span style="color:var(--text-mute);">회사명 일부를 입력하면 해당 회사만 표시됩니다</span></div>
+                <div class="hotspot" style="top:96px; right:8px;">2</div>
+                <div>
+                  <div class="mock-label">결제 계정 (Billing Account Name)</div>
+                  <div class="mock-input">▾ Air Incheon</div>
+                </div>
+                <div class="hotspot" style="top:158px; right:8px;">3</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>토글 OFF</strong> 로 단일 정산 모드 진입.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>검색창</strong> 으로 옵션 좁히기 — 부분 문자열 매칭 (일괄과 동일).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>드롭다운에서 회사 선택</strong> — 이전 선택은 자동 복원. 회사 바뀌면 아래 SKU 패널로 자동 스크롤.</div>
+          </div>
+          <div class="step-tip">
+            <strong>스크롤로 화면 밖으로 나가도</strong> 결제 계정 선택 영역이 상단에 떠 있는(floating) 모드로 전환됩니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 14. 단일 — 옵션 설정 ─── -->
+  <div class="slide" data-title="화면 13: 단일 — 옵션 설정">
+    <div class="slide-inner">
+      <div class="slide-header">
+        <div class="slide-chip">화면 13 · 단일 정산</div>
+        <div class="slide-title">옵션 설정 + 정산 실행</div>
+        <div class="slide-sub">회사 선택 후 아래에 펼쳐지는 옵션들 — 모두 회사별로 영구 저장.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:580px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-section-title">⚙️ 정산 옵션 (Air Incheon)</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                  <div><div class="mock-label">환율 (₩/$)</div><div class="mock-input">1400.00</div></div>
+                  <div><div class="mock-label">기준일</div><div class="mock-input">2026-04-30</div></div>
+                </div>
+                <div class="hotspot" style="top:42px; right:8px;">1</div>
+                <div class="mock-radio" style="margin-top:6px;">
+                  <label><div class="r on"></div>회사 통합</label>
+                  <label><div class="r"></div>프로젝트별</label>
+                </div>
+                <div class="hotspot" style="top:124px; right:8px;">2</div>
+                <div class="mock-expander">
+                  <div class="head">▸ 📋 SKU 노출 순서 / 미노출</div>
+                </div>
+                <div class="hotspot" style="top:174px; right:8px;">3</div>
+                <div class="mock-expander">
+                  <div class="head">▸ ➕ 직접 등록 SKU</div>
+                </div>
+                <div class="hotspot" style="top:218px; right:8px;">4</div>
+                <div class="mock-btn primary full" style="margin-top:6px;">▶ 정산 실행</div>
+                <div class="hotspot" style="top:262px; right:8px;">5</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>환율 + 기준일</strong> — USD 회사면 필수. KRW 회사면 무시됨.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>과금 방식</strong> — 회사 통합(기본) 또는 프로젝트별 선택.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-text"><strong>SKU 노출 순서</strong> — 드래그로 정렬 + 미노출 항목 지정.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-text"><strong>직접 등록 SKU</strong> — 사용량 0 이어도 빈 라인으로 노출할 SKU.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-text"><strong>"▶ 정산 실행" 클릭</strong> — 1~3초 후 결과 영역에 인보이스 표시 + 엑셀 자동 다운로드.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 15. 단일 — 결과 ─── -->
+  <div class="slide" data-title="화면 14: 단일 — 정산 결과">
+    <div class="slide-inner">
+      <div class="slide-header">
+        <div class="slide-chip">화면 14 · 단일 정산</div>
+        <div class="slide-title">정산 결과 + 자동 다운로드</div>
+        <div class="slide-sub">정산 직후 엑셀이 자동 다운로드되고 화면에 결과가 표시됩니다.</div>
+      </div>
+      <div class="slide-body">
+        <div class="mock-wrap">
+          <div class="mock mock-app" style="max-width:600px;">
+            <div class="mock-header-bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <div class="mock-body no-side">
+              <div class="mock-main" style="position:relative;">
+                <div class="mock-callout success">✅ 정산 완료. 엑셀이 자동 다운로드되었습니다.</div>
+                <div class="hotspot" style="top:18px; right:8px;">1</div>
+                <div style="font-size:0.85rem; color:var(--text-soft);">
+                  <strong>회사:</strong> Air Incheon<br>
+                  <strong>정산월:</strong> 2026-04<br>
+                  <strong>환율:</strong> ₩1,400.00<br>
+                  <strong>청구액:</strong> ₩2,345,670
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <div class="mock-btn">📥 다시 다운로드 (Excel)</div>
+                  <div class="mock-btn">📥 다시 다운로드 (PDF)</div>
+                </div>
+                <div class="hotspot" style="top:200px; right:8px;">2</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-text"><strong>성공 박스 + 결과 요약</strong> — 회사/정산월/환율/청구액 한눈에. 정합성 경고 있으면 여기 위에 빨간 박스로 표시됨.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-text"><strong>재다운로드 버튼</strong> — 자동 다운로드를 놓쳤거나 다시 받고 싶을 때.</div>
+          </div>
+          <div class="step-tip">
+            <strong>파일명:</strong> <span class="pill">sGMP_Invoice_회사명.xlsx</span> 형태. 다운로드 폴더에 저장.
+          </div>
+          <div class="step-tip warn">
+            <strong>경고가 떴다면:</strong> 일괄 정산 화면 11번과 동일 — 빨간 박스 상세 보고 엑셀 직접 확인.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 16. 마무리 ─── -->
+  <div class="slide" data-title="마무리">
     <div class="slide-inner hero">
-      <h1>끝!</h1>
-      <div class="sub">문의 / 버그 신고는 담당자에게</div>
+      <h1>준비 끝</h1>
+      <div class="sub">막히는 곳 있으면 개발팀에 문의</div>
       <div class="meta">
-        배포: <a style="color:#fff; text-decoration:underline;" href="https://sphgmp.streamlit.app/" target="_blank">sphgmp.streamlit.app</a><br>
-        저장소: GitHub (사내 전용)
+        앱: <a style="color:#fff; text-decoration:underline;" href="https://sphgmp.streamlit.app/" target="_blank">sphgmp.streamlit.app</a>
       </div>
-      <div class="meta" style="margin-top:40px; font-size:0.85rem; opacity:0.6;">
-        <kbd style="color:#1f2933;">←</kbd> <kbd style="color:#1f2933;">→</kbd> 로 슬라이드 이동 ·
-        <kbd style="color:#1f2933;">Space</kbd> 다음 슬라이드
+      <div class="meta" style="font-size:0.8rem; opacity:0.7; margin-top:40px;">
+        <kbd style="color:#1f2933;">←</kbd> <kbd style="color:#1f2933;">→</kbd> 슬라이드 이동 ·
+        <kbd style="color:#1f2933;">Space</kbd> 다음 ·
+        <kbd style="color:#1f2933;">Home/End</kbd> 처음/끝
       </div>
     </div>
   </div>
 
 </div>
 
-<!-- ──────────────────── 네비게이션 ──────────────────── -->
+<!-- 네비게이션 -->
 <div class="nav">
-  <button id="prev" aria-label="이전 슬라이드">‹</button>
-  <span class="pageinfo" id="pageinfo">1 / 15</span>
-  <button id="next" aria-label="다음 슬라이드">›</button>
-  <span class="hint">← → 키 / Space</span>
+  <button id="prev" aria-label="이전">‹</button>
+  <span class="pageinfo" id="pageinfo">1 / 16</span>
+  <button id="next" aria-label="다음">›</button>
+  <select id="jump" aria-label="슬라이드 점프"></select>
+  <span class="hint">← → / Space</span>
 </div>
 
 <script>
@@ -730,7 +1306,16 @@
   const pageinfo = document.getElementById('pageinfo');
   const prevBtn = document.getElementById('prev');
   const nextBtn = document.getElementById('next');
+  const jump = document.getElementById('jump');
   let cur = 0;
+
+  // 점프 셀렉트 채우기
+  slides.forEach((s, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = (i + 1) + '. ' + (s.dataset.title || '슬라이드 ' + (i + 1));
+    jump.appendChild(opt);
+  });
 
   function render(idx) {
     cur = Math.max(0, Math.min(total - 1, idx));
@@ -739,7 +1324,7 @@
     pageinfo.textContent = (cur + 1) + ' / ' + total;
     prevBtn.disabled = (cur === 0);
     nextBtn.disabled = (cur === total - 1);
-    // URL hash 동기화 (북마크/공유 가능)
+    jump.value = cur;
     if (location.hash !== '#' + (cur + 1)) {
       history.replaceState(null, '', '#' + (cur + 1));
     }
@@ -747,8 +1332,11 @@
 
   prevBtn.addEventListener('click', () => render(cur - 1));
   nextBtn.addEventListener('click', () => render(cur + 1));
+  jump.addEventListener('change', () => render(parseInt(jump.value, 10)));
 
   document.addEventListener('keydown', (e) => {
+    // 셀렉트박스 포커스 중엔 키 이벤트 무시
+    if (e.target.tagName === 'SELECT') return;
     if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
       e.preventDefault(); render(cur + 1);
     } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -760,7 +1348,6 @@
     }
   });
 
-  // URL hash 로 진입 시 해당 슬라이드 표시
   const initial = parseInt((location.hash || '').replace('#', ''), 10);
   render(isNaN(initial) ? 0 : initial - 1);
 })();
