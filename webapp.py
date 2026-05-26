@@ -1031,21 +1031,43 @@ def render_batch_billing_ui(
                     '환율을 입력해 주세요</div>',
                     unsafe_allow_html=True,
                 )
-                st.html("""
-                <script>
-                (function(){
-                  try {
-                    var inp = window.parent.document.querySelector(
-                      '.st-key-_batch_rate_input input'
-                    );
-                    if (inp && !inp.disabled) {
-                      inp.focus();
-                      inp.scrollIntoView({behavior:'smooth', block:'center'});
-                    }
-                  } catch(e) {}
-                })();
-                </script>
-                """)
+                # DOM 안정 후 포커스 — st.html 실행 시점에 number_input 이 아직
+                # 렌더 중일 수 있어 짧게 retry. unsafe_allow_javascript=True 필수
+                # (안 주면 Streamlit 이 <script> 차단).
+                st.html(
+                    """
+                    <script>
+                    (function(){
+                      function tryFocus(attempt){
+                        try {
+                          var container = window.parent.document.querySelector(
+                            '.st-key-_batch_rate_input'
+                          );
+                          if (!container) {
+                            if (attempt < 30) return setTimeout(
+                              function(){ tryFocus(attempt+1); }, 60
+                            );
+                            return;
+                          }
+                          var inp = container.querySelector(
+                            'input:not([type="hidden"])'
+                          );
+                          if (inp && !inp.disabled) {
+                            inp.focus();
+                            inp.scrollIntoView({behavior:'smooth', block:'center'});
+                            try {
+                              var len = (inp.value || '').length;
+                              inp.setSelectionRange(len, len);
+                            } catch(e) {}
+                          }
+                        } catch(e) {}
+                      }
+                      tryFocus(0);
+                    })();
+                    </script>
+                    """,
+                    unsafe_allow_javascript=True,
+                )
         with c2:
             batch_rate_date = st.date_input(
                 "환율 날짜",
