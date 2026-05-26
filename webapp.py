@@ -906,11 +906,13 @@ def _run_batch_single_billing(
             # 아니면 단일 호출 (회사당 Excel 새로 띄움).
             if pdf_converter is not None:
                 _pdf_bytes, _pdf_error = pdf_converter.convert(_excel_bytes, _pdf_sheet)
+                _pdf_via = "BatchExcelPdf"
             else:
                 from pdf_export import xlsx_sheet_to_pdf
                 _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(_excel_bytes, _pdf_sheet)
+                _pdf_via = "single"
             _t_pdf = _t_perf.time() - _t0
-            print(f"{_tag} 8) xlsx_sheet_to_pdf: {_t_pdf:.3f}초 (bytes={len(_pdf_bytes) if _pdf_bytes else 0})")
+            print(f"{_tag} 8) PDF 변환 [{_pdf_via}]: {_t_pdf:.3f}초 (bytes={len(_pdf_bytes) if _pdf_bytes else 0})")
             _timings["pdf"] = _t_pdf
 
         _t_total = _t_perf.time() - _t_start
@@ -1582,26 +1584,40 @@ def render_batch_billing_ui(
     # dl_pdf 가 켜진 경우만 BatchExcelPdf 컨텍스트로 Excel 1개를 batch 내내 살려두고
     # 회사마다 stdin 으로 변환 명령만 전달 → 2번째 호출부터 회사당 2~4초.
     from pdf_export import BatchExcelPdf as _BatchExcelPdf
+    print(f"[정산루프] dl_pdf={dl_pdf}, BatchExcelPdf 사용여부 결정")
     _pdf_ctx = _BatchExcelPdf() if dl_pdf else None
     try:
       # __enter__ 도 try 안에서 호출 — 서버 시작 자체에서 예외가 나도 finally
       # 에서 안전하게 __exit__(=정리) 가 불리도록.
       if _pdf_ctx is not None:
+          _t_enter = _t_perf2.time()
           _pdf_ctx.__enter__()
+          _t_enter_elapsed = _t_perf2.time() - _t_enter
+          _server_ready = (_pdf_ctx._proc is not None and _pdf_ctx._proc.poll() is None)
+          print(
+              f"[정산루프] BatchExcelPdf.__enter__: {_t_enter_elapsed:.3f}초, "
+              f"서버 가동={_server_ready} "
+              f"({'재사용 모드 (빠름)' if _server_ready else 'fallback 모드 (단일 호출)'})"
+          )
       with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
+            _t_company_start = _t_perf2.time()
             _remaining = (
                 _ema_per_company * (total - _finished_count)
                 if _ema_per_company is not None and total > _finished_count
                 else None
             )
+            # ──[진단] section A: overlay render ─────────────────────
+            _t_sec = _t_perf2.time()
             _render_batch_overlay(
                 overlay_ph, idx=idx, total=total, company=c,
                 remaining_seconds=_remaining,
             )
-            _t_company_start = _t_perf2.time()
+            _t_A_overlay = _t_perf2.time() - _t_sec
 
+            # ──[진단] section B: 회사별 저장값 lookup ───────────────
+            _t_sec = _t_perf2.time()
             _nc          = _norm_of.get(c) or _norm_account_key(c)
             _saved_for   = _fast_lookup(_orders_all,    _orders_norm,    c, _nc) or []
             _manual_for  = _fast_lookup(_manual_all,    _manual_norm,    c, _nc) or []
@@ -1625,7 +1641,10 @@ def render_batch_billing_ui(
             else:
                 _rate_date_for_c = _batch_rate_date_str
             _min_amt, _min_cur = _min_charge_for_account(c)
+            _t_B_lookup = _t_perf2.time() - _t_sec
 
+            # ──[진단] section C: 정산 함수 호출 (xlsx + pdf 내부 측정) ─
+            _t_sec = _t_perf2.time()
             res = _run_batch_single_billing(
                 selected_company=c,
                 billing_month=billing_month,
@@ -1651,6 +1670,7 @@ def render_batch_billing_ui(
                 dl_pdf=dl_pdf,
                 pdf_converter=_pdf_ctx,
             )
+            _t_C_billing = _t_perf2.time() - _t_sec
 
             _paid_names = [nm for nm, _ in (res.get("paid_in_hidden") or [])]
             policy_applied = None
@@ -1675,6 +1695,7 @@ def render_batch_billing_ui(
                     ]
                     _save_order_for_account(c, _new_saved)
                     policy_applied = "moved"
+                    _t_sec2 = _t_perf2.time()
                     res = _run_batch_single_billing(
                         selected_company=c,
                         billing_month=billing_month,
@@ -1700,6 +1721,8 @@ def render_batch_billing_ui(
                         dl_pdf=dl_pdf,
                         pdf_converter=_pdf_ctx,
                     )
+                    # policy=move 인 경우 정산이 1회 더 — 그 시간도 C 에 합산.
+                    _t_C_billing += _t_perf2.time() - _t_sec2
 
             if not res["ok"]:
                 results.append({
@@ -1714,13 +1737,18 @@ def render_batch_billing_ui(
                 _finished_count += 1
                 continue
 
+            # ──[진단] section D: zip writestr (메모리 → 압축) ───────
+            _t_sec = _t_perf2.time()
             _safe = safe_re.sub("_", c).strip() or "전체"
             _stem = f"sGMP_Invoice_{_safe}"
             if dl_xlsx and res.get("excel_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.xlsx", res["excel_bytes"])
             if dl_pdf and res.get("pdf_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.pdf", res["pdf_bytes"])
+            _t_D_zip = _t_perf2.time() - _t_sec
 
+            # ──[진단] section E: 결과 bookkeeping ────────────────────
+            _t_sec = _t_perf2.time()
             _val_w = res.get("validation_warnings") or []
             results.append({
                 "company": c,
@@ -1738,8 +1766,17 @@ def render_batch_billing_ui(
             if _val_w:
                 _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
+            _t_E_bookkeep = _t_perf2.time() - _t_sec
             _t_company_elapsed = _t_perf2.time() - _t_company_start
-            print(f"[정산루프] ({idx}/{total}) {c} 완료: {_t_company_elapsed:.3f}초")
+            _t_other = _t_company_elapsed - (
+                _t_A_overlay + _t_B_lookup + _t_C_billing + _t_D_zip + _t_E_bookkeep
+            )
+            print(
+                f"[정산루프] ({idx}/{total}) {c} 합계 {_t_company_elapsed:.2f}s = "
+                f"A.overlay {_t_A_overlay:.2f} + B.lookup {_t_B_lookup:.3f} + "
+                f"C.billing {_t_C_billing:.2f} + D.zip {_t_D_zip:.3f} + "
+                f"E.bookkeep {_t_E_bookkeep:.3f} + 기타 {_t_other:.3f}"
+            )
             _ema_per_company = _update_ema(_ema_per_company, _t_company_elapsed, _EMA_ALPHA)
             # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(

@@ -484,12 +484,64 @@ finally:
 '''
 
 
+def _list_excel_pids() -> set[int]:
+    """현재 떠 있는 EXCEL.EXE PID 집합. Windows 전용. 실패 시 빈 집합."""
+    if platform.system() != "Windows":
+        return set()
+    try:
+        out = subprocess.check_output(
+            ["tasklist", "/FI", "IMAGENAME eq EXCEL.EXE", "/FO", "CSV", "/NH"],
+            text=True, stderr=subprocess.DEVNULL, encoding="utf-8", errors="replace",
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        pids: set[int] = set()
+        for line in out.splitlines():
+            line = line.strip()
+            if not line or "EXCEL.EXE" not in line.upper():
+                continue
+            parts = line.split(",")
+            if len(parts) >= 2:
+                pid_str = parts[1].strip().strip('"')
+                try:
+                    pids.add(int(pid_str))
+                except ValueError:
+                    pass
+        return pids
+    except Exception:
+        return set()
+
+
+def _kill_pids(pids: set[int]) -> int:
+    """주어진 PID 들을 taskkill /F 로 강제 종료. 성공 카운트 반환."""
+    if not pids or platform.system() != "Windows":
+        return 0
+    killed = 0
+    for pid in pids:
+        try:
+            r = subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True, timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if r.returncode == 0:
+                killed += 1
+        except Exception:
+            pass
+    return killed
+
+
 class BatchExcelPdf:
     """Windows 전용. with 블록 동안 Excel 1개를 살려두고 PDF 변환 반복.
 
     Linux/macOS 에서는 서버 모드 미구현. convert() 가 자동으로
     _xlsx_to_pdf_libreoffice() 로 fallback. Excel COM/subprocess 시작 실패
     시에도 단일 호출 xlsx_sheet_to_pdf() 로 graceful fallback.
+
+    Excel COM 좀비 누수 방지: __enter__ 직전 EXCEL.EXE PID 스냅샷을 떠두고,
+    __exit__ 시 새로 생긴 PID 만 강제 종료. 정상 종료 경로에서 excel.Quit()
+    이 제대로 안 끝나는 경우(컴퓨터가 바빠 timeout, COM 참조 잔여 등)에도
+    좀비를 남기지 않음. 배치 반복 시 누적 누수로 시스템 슬로우다운 방지.
     """
 
     def __init__(self, timeout_per_call: int = 120):
@@ -498,6 +550,8 @@ class BatchExcelPdf:
         self._base: Path | None = None
         self._is_windows = (platform.system() == "Windows")
         self._call_idx = 0
+        self._excel_pids_before: set[int] = set()
+        self._our_excel_pids: set[int] = set()
 
     def __enter__(self):
         if self._is_windows:
@@ -510,6 +564,9 @@ class BatchExcelPdf:
 
     def _start_windows_server(self) -> None:
         try:
+            # Excel PID 스냅샷 — 우리가 띄운 Excel 만 추적하기 위함
+            self._excel_pids_before = _list_excel_pids()
+
             self._base = Path(tempfile.gettempdir()) / f"sph_pdf_batch_{uuid.uuid4().hex[:10]}"
             self._base.mkdir(parents=True, exist_ok=True)
             script_path = self._base / "_server.py"
@@ -531,6 +588,10 @@ class BatchExcelPdf:
             if ready != "READY":
                 # 실패 — 서버 정리
                 self._stop_windows_server()
+                return
+            # READY 받았으면 새로 생긴 Excel PID 들이 우리 것
+            after = _list_excel_pids()
+            self._our_excel_pids = after - self._excel_pids_before
         except Exception as e:
             sys.stderr.write(f"BatchExcelPdf server start failed: {e}\n")
             self._stop_windows_server()
@@ -552,6 +613,16 @@ class BatchExcelPdf:
             except Exception:
                 pass
             self._proc = None
+        # Excel COM 좀비 강제 정리 — Quit() 이 행되거나 subprocess 강제 종료
+        # 된 경우에도 우리가 띄운 Excel 만 골라서 taskkill. 사용자가 별도로
+        # 띄운 Excel 은 _excel_pids_before 에 포함되어 있어 건드리지 않음.
+        if self._our_excel_pids:
+            alive = self._our_excel_pids & _list_excel_pids()
+            if alive:
+                killed = _kill_pids(alive)
+                if killed > 0:
+                    print(f"[BatchExcelPdf] 좀비 Excel {killed}개 강제 정리 (PID={sorted(alive)})", flush=True)
+            self._our_excel_pids = set()
         if self._base is not None:
             try:
                 shutil.rmtree(self._base, ignore_errors=True)
