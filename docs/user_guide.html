@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sGMP Invoice Generator — 사용 설명서</title>
+<style>
+  :root {
+    --primary: #0b6fda;
+    --primary-light: #21b6f6;
+    --primary-dark: #0856ac;
+    --success: #21b96d;
+    --warn: #f5a623;
+    --danger: #e64545;
+    --text: #1f2933;
+    --text-soft: #475568;
+    --text-mute: #7a8a90;
+    --bg: #f4f7fb;
+    --card: #ffffff;
+    --border: #e6ebf0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Pretendard", "Noto Sans KR", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    user-select: none;
+  }
+
+  /* ── 슬라이드 컨테이너 ─────────────────────────── */
+  .deck {
+    width: 100vw; height: 100vh;
+    position: relative; overflow: hidden;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 60px 80px;
+    opacity: 0; pointer-events: none;
+    transform: translateX(40px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  .slide.active {
+    opacity: 1; pointer-events: auto;
+    transform: translateX(0);
+  }
+  .slide-inner {
+    width: 100%; max-width: 1100px;
+    background: var(--card);
+    border-radius: 24px;
+    padding: 56px 64px;
+    box-shadow: 0 20px 60px rgba(15,18,22,0.10);
+    min-height: 75vh;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .slide-inner.hero {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+    color: #ffffff;
+    text-align: center;
+  }
+  .slide-inner.hero h1 {
+    font-size: 3.4rem; font-weight: 800; letter-spacing: -0.5px;
+    margin-bottom: 18px;
+  }
+  .slide-inner.hero .sub {
+    font-size: 1.3rem; opacity: 0.92; font-weight: 400;
+    margin-bottom: 12px;
+  }
+  .slide-inner.hero .meta {
+    font-size: 0.95rem; opacity: 0.7; margin-top: 30px;
+  }
+
+  /* ── 슬라이드 콘텐츠 ─────────────────────────── */
+  .chip {
+    display: inline-block;
+    background: var(--primary);
+    color: #ffffff;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 0.8rem; font-weight: 600;
+    margin-bottom: 18px; letter-spacing: 0.3px;
+  }
+  h2 {
+    font-size: 2.1rem; font-weight: 800;
+    margin-bottom: 12px; color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .lead {
+    font-size: 1.1rem; color: var(--text-soft);
+    margin-bottom: 28px; line-height: 1.55;
+  }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .feature {
+    background: #f7fafd;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .feature h3 {
+    font-size: 1.05rem; font-weight: 700;
+    color: var(--primary-dark);
+    margin-bottom: 6px;
+  }
+  .feature p {
+    font-size: 0.92rem; color: var(--text-soft);
+    line-height: 1.55;
+  }
+  .step-list { list-style: none; padding: 0; }
+  .step-list li {
+    display: flex; gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .step-list li:last-child { border-bottom: 0; }
+  .step-num {
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    background: var(--primary); color: #ffffff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.95rem;
+  }
+  .step-body { flex: 1; }
+  .step-body strong {
+    display: block; font-size: 1rem; color: var(--text);
+    margin-bottom: 3px;
+  }
+  .step-body span {
+    font-size: 0.9rem; color: var(--text-soft); line-height: 1.5;
+  }
+  table.meta-table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.92rem;
+  }
+  table.meta-table th, table.meta-table td {
+    text-align: left; padding: 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.meta-table th {
+    background: #f0f5fa; font-weight: 700; color: var(--text);
+  }
+  table.meta-table td.code {
+    font-family: "JetBrains Mono", "Consolas", monospace;
+    color: var(--primary-dark);
+    font-weight: 600;
+  }
+  .callout {
+    border-left: 4px solid var(--primary);
+    background: #eef6fe;
+    padding: 14px 18px;
+    border-radius: 0 10px 10px 0;
+    font-size: 0.93rem;
+    color: var(--text-soft);
+    line-height: 1.55;
+    margin-top: 18px;
+  }
+  .callout.warn { border-color: var(--warn); background: #fff7e6; }
+  .callout.danger { border-color: var(--danger); background: #fdecec; }
+  .callout strong { color: var(--text); }
+  .pill {
+    display: inline-block;
+    background: var(--bg);
+    color: var(--text-soft);
+    padding: 3px 10px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-family: "JetBrains Mono", "Consolas", monospace;
+    border: 1px solid var(--border);
+    margin: 2px 0;
+  }
+  kbd {
+    background: #fafbfc;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: var(--text);
+  }
+
+  /* ── 모형 (UI 미리보기 박스) ─────────────────── */
+  .mock {
+    background: #1f2933; color: #d8e2eb;
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-family: "JetBrains Mono", "Consolas", monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin-top: 14px;
+  }
+  .mock .muted { color: #7a8a90; }
+  .mock .ok { color: #21b96d; }
+  .mock .warn { color: #f5a623; }
+  .mock .danger { color: #ff6b6b; }
+  .mock .accent { color: #21b6f6; }
+
+  /* ── 네비게이션 ─────────────────────────── */
+  .nav {
+    position: fixed; bottom: 22px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(255,255,255,0.92);
+    padding: 8px 16px;
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(15,18,22,0.12);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+  }
+  .nav button {
+    border: 0; background: var(--primary); color: #ffffff;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    font-size: 0.95rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+  }
+  .nav button:hover { background: var(--primary-dark); }
+  .nav button:disabled { background: #c8d1d8; cursor: not-allowed; }
+  .nav .pageinfo {
+    font-size: 0.85rem; color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    min-width: 50px; text-align: center;
+  }
+  .nav .hint {
+    font-size: 0.75rem; color: var(--text-mute);
+    margin-left: 6px;
+  }
+
+  /* ── 진행 바 ─────────────────────────── */
+  .progress {
+    position: fixed; top: 0; left: 0;
+    height: 3px; background: var(--primary);
+    transition: width 0.3s ease;
+    z-index: 101;
+  }
+
+  @media (max-width: 800px) {
+    .slide { padding: 30px 20px; }
+    .slide-inner { padding: 32px 24px; min-height: 80vh; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    h2 { font-size: 1.5rem; }
+    .slide-inner.hero h1 { font-size: 2.2rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<div class="deck" id="deck">
+
+  <!-- ──────────────────── 1. 표지 ──────────────────── -->
+  <div class="slide active">
+    <div class="slide-inner hero">
+      <h1>sGMP Invoice Generator</h1>
+      <div class="sub">Google Maps Platform 정산 자동화 시스템</div>
+      <div class="sub" style="font-size:1rem; opacity:0.8;">SPH 사용 설명서</div>
+      <div class="meta">버전 2026.05 · 사내 전용</div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 2. 시스템 개요 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">개요</div>
+      <h2>이 시스템이 하는 일</h2>
+      <p class="lead">Google Cloud 에서 받은 청구 CSV 와 사내 Price List 엑셀을 입력받아,
+        고객사별로 GMP 인보이스를 자동 생성합니다. 단일 회사 정산과 전체 일괄 정산 두 모드를 지원합니다.</p>
+      <div class="grid-3">
+        <div class="feature">
+          <h3>① 입력</h3>
+          <p>월별 청구 CSV (회사 전체 한 파일) + 단가 기준이 되는 Price List xlsx</p>
+        </div>
+        <div class="feature">
+          <h3>② 처리</h3>
+          <p>회사별 SKU 추출 → Waterfall(무료 한도 → tier 단가) 적용 → KRW 환산</p>
+        </div>
+        <div class="feature">
+          <h3>③ 출력</h3>
+          <p>회사별 Invoice.xlsx (+ 옵션 PDF). 일괄 모드는 회사별 폴더로 ZIP 묶음</p>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>단일 진실 소스 원칙:</strong> "어떤 SKU 가 쓰였는가" 는 CSV, "각 SKU 의 단가/무료한도" 는 Price List 만 본다.
+        중간 정의 파일(master_data.csv 등) 은 정산 경로에서 더 이상 참조하지 않는다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 3. 메인 화면 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">UI 구조</div>
+      <h2>메인 화면 구성</h2>
+      <div class="grid-2">
+        <div class="feature">
+          <h3>📂 사이드바 (좌)</h3>
+          <p>월별 청구 CSV 업로드 / Price List(USD·KRW) 업로드 / 통화 자동 감지 / 정산월 자동 감지</p>
+        </div>
+        <div class="feature">
+          <h3>📋 본문 (우)</h3>
+          <p>일괄 모드 토글 (기본 ON) / 회사 선택 / 옵션 / 정산 실행 / 결과 + 다운로드</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:24px;">
+        화면 상단의 <strong>"전체 일괄 정산 모드"</strong> 토글을 <strong>OFF</strong> 하면 단일 회사 정산 화면으로 전환됩니다.
+      </p>
+      <div class="mock">
+<span class="muted">┌─── 사이드바 ───┐  ┌─── 본문 ────────────────────────┐</span>
+<span class="muted">│</span> <span class="accent">📁 CSV</span>          <span class="muted">│  │</span> <span class="ok">☑ 전체 일괄 정산 모드</span>           <span class="muted">│</span>
+<span class="muted">│</span> <span class="accent">📁 Price List</span>   <span class="muted">│  │</span>                                  <span class="muted">│</span>
+<span class="muted">│</span> 통화: USD     <span class="muted">│  │</span> <span class="accent">📋 회사 선택</span> (60개)             <span class="muted">│</span>
+<span class="muted">│</span> 정산월:       <span class="muted">│  │</span>   <span class="muted">🔍 검색창</span>                    <span class="muted">│</span>
+<span class="muted">│</span> 2026-04      <span class="muted">│  │</span>   ☑ 회사A   ☐ 회사B   …          <span class="muted">│</span>
+<span class="muted">└──────────────┘  │</span>                                  <span class="muted">│</span>
+                  <span class="muted">│</span> <span class="ok">▶ 전체 정산 시작 (12개사)</span>       <span class="muted">│</span>
+                  <span class="muted">└──────────────────────────────────┘</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 4. 파일 업로드 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">1단계 — 파일 업로드</div>
+      <h2>CSV + Price List 올리기</h2>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>월별 청구 CSV 업로드</strong>
+            <span>Google Cloud Console 에서 다운받은 그달의 청구 CSV (모든 회사 합본). 사이드바 상단 "📁 CSV 업로드" 영역에 드래그.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>Price List xlsx 업로드 (USD / KRW)</strong>
+            <span>SKU 별 단가·무료한도 기준표. USD 단가표·KRW 단가표를 통화별로 따로 보관. 시스템이 청구 CSV 의 환산 통화를 자동 감지해 둘 중 알맞은 걸 사용.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>자동 감지 확인</strong>
+            <span>정산월(예: 2026-04)·통화(USD/KRW) 가 사이드바에 자동 표시됨. 다르면 수동 조정 가능.</span>
+          </div>
+        </li>
+      </ul>
+      <div class="callout warn">
+        <strong>주의:</strong> CSV 가 잘못된 월 데이터를 포함하면 "정산월" 을 수동으로 맞춰 주세요. 자동 감지는 인보이스 날짜 행을 읽는 방식입니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 5. 단일 정산 - 회사 선택 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">단일 정산 모드</div>
+      <h2>회사 1개 정산하기 — 회사 선택</h2>
+      <p class="lead">상단 토글을 OFF 로 바꾸면 단일 정산 모드. 결제 계정 (회사) 을 하나 골라 그 회사만 정산합니다.</p>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>🔍 결제 계정 검색</strong>
+            <span>회사명 일부 입력 → 부분 문자열 매칭. 예: "splyt" 입력 시 "splyt" 가 이름에 포함된 회사만 표시. (부분수열 매칭 X)</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>드롭다운에서 선택</strong>
+            <span>검색 결과 좁혀진 후 드롭다운에서 정산할 회사 선택. 이전 선택은 자동 복원.</span>
+          </div>
+        </li>
+      </ul>
+      <div class="callout">
+        <strong>💡 검색 팁:</strong> 회사 정식 명칭 일부만 입력하면 됩니다. 대소문자 무관, 한글 정규화도 적용됨.
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 6. 단일 정산 - 옵션 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">단일 정산 모드</div>
+      <h2>옵션 설정 → 정산 실행</h2>
+      <div class="grid-2">
+        <div class="feature">
+          <h3>환율 / 기준일 / 은행</h3>
+          <p>USD 회사면 환율 입력. 환율 적용 기준일(보통 전월 말일 영업일) 과 송금 은행명도 함께 표기.</p>
+        </div>
+        <div class="feature">
+          <h3>과금 방식</h3>
+          <p>"회사 통합" (기본) vs "프로젝트별" 선택. 후자는 프로젝트마다 별도 시트.</p>
+        </div>
+        <div class="feature">
+          <h3>SKU 노출 순서</h3>
+          <p>드래그로 인보이스 표시 순서 조정. 미노출 SKU 지정 가능.</p>
+        </div>
+        <div class="feature">
+          <h3>직접 등록 SKU</h3>
+          <p>사용량 0 이라도 빈 라인으로 인보이스에 노출하고 싶은 SKU 추가.</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:24px;">
+        설정이 끝나면 우측의 <strong>"▶ 정산 실행"</strong> 버튼 클릭. 1~3초 후 결과 영역에 인보이스가 표시되며 엑셀이 자동 다운로드.
+      </p>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 7. 일괄 정산 - 테이블 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">일괄 정산 모드</div>
+      <h2>회사 선택 테이블 보는 법</h2>
+      <p class="lead">체크박스로 정산할 회사들을 골라 한 번에 처리. 각 행에 표시되는 메타정보로 회사별 저장된 설정을 한눈에 확인.</p>
+      <div class="mock">
+☑ <span class="accent">Air Incheon</span>
+   <span class="muted">회사통합 · ,2 · Proj✓ · 최소- · hidden 0 · 직접등록 0</span>
+
+☑ <span class="accent">BespinGlobal-TeamO2</span>
+   <span class="muted">프로젝트별 · ,2 · Proj✓ · 최소 KRW 500,000 · hidden 2 · 직접등록 1</span>
+
+☐ <span class="accent">Geosurvey</span>  <span class="ok">🆕 신규</span>
+   <span class="muted">회사통합 · ,0 · Proj✗ · 최소- · hidden 0 · 직접등록 0</span>
+      </div>
+      <div class="callout">
+        <strong>🆕 신규</strong> 마커: 이전에 본 적 없는 회사. CSV 에 새로 등장한 회사는 기본 체크된 상태로 보여줍니다.
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 8. 메타정보 6가지 해석 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">일괄 정산 모드 · 메타정보</div>
+      <h2>메타정보 6항목, 각각 무슨 뜻?</h2>
+      <table class="meta-table">
+        <thead>
+          <tr><th>#</th><th>표기 예</th><th>의미</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td class="code">회사통합</td>
+            <td>과금 방식. 결제계정 단위로 SKU usage 합쳐 waterfall. <span class="pill">프로젝트별</span> 면 프로젝트 시트 분리.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td class="code">,2</td>
+            <td>소계 소수점 자릿수. USD = ,2 / KRW = ,0 이 기본.</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td class="code">Proj✓ / Proj✗</td>
+            <td>프로젝트 시트 포함 여부. ✓ 면 "Project" 시트 추가.</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td class="code">최소-</td>
+            <td>월 최소사용비용 미적용. <span class="pill">최소 KRW 500,000</span> 처럼 금액 표시되면 적용 중.</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td class="code">hidden 0</td>
+            <td>인보이스에서 숨길 SKU 개수.</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td class="code">직접등록 0</td>
+            <td>사용량 0 이어도 빈 라인으로 노출할 SKU 개수.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 9. 일괄 입력 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">일괄 정산 모드 · 환율 일괄 입력</div>
+      <h2>환율 한 번에 입력하기</h2>
+      <p class="lead">USD 단가표를 쓰는 회사들에 환율을 동시 적용. 회사별로 따로 조정도 가능.</p>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <strong>일괄 환율 입력</strong>
+            <span>"💱 일괄 입력 (USD 회사에만 적용)" 영역에 환율(₩/$) + 환율 날짜 입력. → 체크된 USD 회사 전체 자동 동기화.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <strong>회사별 개별 조정 (선택)</strong>
+            <span>회사 행에서 환율값/기준일/은행/문구를 회사별로 다르게 설정 가능. 회사별로 마지막 저장값이 다음 정산에 자동 반영.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <strong>KRW 단가표 회사</strong>
+            <span>환율 불필요 → 입력 무시.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 10. 정책 옵션 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">일괄 정산 모드 · 비용발생 SKU 정책</div>
+      <h2>"미노출 지정한 SKU 에 비용이 있을 때" 처리</h2>
+      <p class="lead">사용자가 미노출(hidden) 처리한 SKU 중 무료 한도를 초과한 항목(=실제 청구액 발생) 이 있으면,
+        엑셀 총액이 실제 청구액보다 적게 나옴. 이 경우 어떻게 처리할지 선택:</p>
+      <div class="grid-3">
+        <div class="feature">
+          <h3>그대로 (as_is)</h3>
+          <p>경고만 띄우고 미노출 그대로 정산. 사용자가 결과 검토 후 직접 판단.</p>
+        </div>
+        <div class="feature">
+          <h3>건너뛰기 (skip)</h3>
+          <p>비용발생 SKU 있는 회사는 정산 스킵. 정산 결과에 포함 안 됨.</p>
+        </div>
+        <div class="feature">
+          <h3>노출로 이동 (move)</h3>
+          <p>해당 SKU 를 hidden 에서 빼고 인보이스 끝에 추가 후 재정산. 영구 저장됨.</p>
+        </div>
+      </div>
+      <div class="callout warn">
+        <strong>권장:</strong> 평소엔 <span class="pill">그대로</span> 두고 회사별 정산 로그에서 ⚠ 표시를 보고 개별 대응.
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 11. 정산 진행 화면 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">정산 실행 화면</div>
+      <h2>정산 중에는 화면이 dim 됩니다</h2>
+      <p class="lead">"▶ 전체 정산 시작" 클릭 → 화면 전체가 반투명 검정으로 덮이고 가운데 진행 카드 등장.
+        다른 위젯은 클릭해도 반응 없음 (오해/오클릭 방지).</p>
+      <div class="mock">
+<span class="muted">┌─────────────────────────────────┐</span>
+<span class="muted">│</span>  <span class="accent">◐</span>  <strong>정산 진행 중</strong>             <span class="muted">│</span>
+<span class="muted">│</span>                                <span class="muted">│</span>
+<span class="muted">│</span>      <span class="accent">12 / 61</span>                  <span class="muted">│</span>
+<span class="muted">│</span>  <span class="ok">████████░░░░░░░░░░░░</span>      <span class="muted">│</span>
+<span class="muted">│</span>                                <span class="muted">│</span>
+<span class="muted">│</span>  현재: bespinglobal-myrealtrip   <span class="muted">│</span>
+<span class="muted">│</span>  <span class="muted">평균 1.8초/사 · 남은 약 1분 30초</span>  <span class="muted">│</span>
+<span class="muted">└─────────────────────────────────┘</span>
+      </div>
+      <div class="grid-2" style="margin-top:18px;">
+        <div class="feature">
+          <h3>🔄 회전 스피너</h3>
+          <p>제목 옆 링이 계속 돌아 "살아있음" 신호. 멈춘 게 아님.</p>
+        </div>
+        <div class="feature">
+          <h3>✨ 진행바 시머</h3>
+          <p>회사 1개 처리 중에도 빛이 좌→우 흐름. 완료 시 ✓ 표시로 전환.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 12. 정합성 검사 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">자동 안전장치</div>
+      <h2>엑셀 자체 정합성 검사</h2>
+      <p class="lead">외부 발송 전 사고를 막기 위해, 정산 후 생성된 엑셀을 자동으로 다시 검사합니다.</p>
+      <div class="grid-2">
+        <div class="feature">
+          <h3>🔍 위험 수식 패턴</h3>
+          <p><span class="pill">*0</span> <span class="pill">*0.0</span> 같은 곱하기-0 수식 (청구액 0 사고)</p>
+        </div>
+        <div class="feature">
+          <h3>🔍 빈 수식 / 참조 오류</h3>
+          <p><span class="pill">SUM()</span> <span class="pill">#REF!</span> <span class="pill">#NAME?</span> 탐지</p>
+        </div>
+        <div class="feature">
+          <h3>🔍 SKU 누락</h3>
+          <p>Python 이 계산한 SKU 가 엑셀 시트에 빠져 있는지 대조</p>
+        </div>
+        <div class="feature">
+          <h3>🚨 발견 시</h3>
+          <p>결과 영역 상단에 빨간 박스 + 상세 expander 자동 펼침. 발송 전 반드시 확인.</p>
+        </div>
+      </div>
+      <div class="callout danger">
+        <strong>경고 발생 회사는 ZIP 다운로드는 되지만 외부 발송 전 반드시 해당 엑셀을 열어 확인하세요.</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 13. 결과 다운로드 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">결과 다운로드</div>
+      <h2>정산 끝나면</h2>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">✓</div>
+          <div class="step-body">
+            <strong>오버레이 사라지고 결과 영역 노출</strong>
+            <span>"결과 요약 (N/N 성공)" 헤더 + 정합성 경고(있다면) + 회사별 로그 expander.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">📦</div>
+          <div class="step-body">
+            <strong>ZIP 다운로드 (일괄)</strong>
+            <span>"📦 zip 다운로드 (전체정산_YYYYMM_타임스탬프.zip)" 버튼 클릭. 회사별 폴더 안에 sGMP_Invoice_회사명.xlsx (+ .pdf) 들어 있음.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">📄</div>
+          <div class="step-body">
+            <strong>개별 다운로드 (단일)</strong>
+            <span>단일 정산은 정산 직후 엑셀이 자동 다운로드. PDF 옵션 켜면 PDF 도 함께. 재다운로드 버튼도 제공.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">⏱</div>
+          <div class="step-body">
+            <strong>단계별 소요시간 (디버그)</strong>
+            <span>결과 영역 하단 expander 에 회사별 전처리/계산/엑셀 생성 시간 보관. 평소엔 닫혀 있고 필요할 때 펼쳐 봄.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 14. 자주 묻는 질문 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner">
+      <div class="chip">FAQ · 문제 해결</div>
+      <h2>자주 묻는 질문</h2>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">Q</div>
+          <div class="step-body">
+            <strong>일괄 정산이 너무 오래 걸려요</strong>
+            <span>회사 60개면 보통 1.5~2분 소요. 진행 카드의 "남은 약 N분" 으로 확인. 멈춰 보이면 회전 스피너 확인.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">Q</div>
+          <div class="step-body">
+            <strong>🚨 정합성 경고가 떴어요</strong>
+            <span>결과 상단의 "정합성 경고 상세" expander 열어 어떤 셀에 어떤 패턴이 박혔는지 확인 → 해당 회사 엑셀 열어 직접 확인 → 필요 시 SKU 노출/미노출 재조정 후 재정산.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">Q</div>
+          <div class="step-body">
+            <strong>회사가 검색되지 않아요</strong>
+            <span>회사명 일부를 정확히 입력. 부분수열(글자 떨어진 매칭) 안 됨 — 연속된 글자가 회사명 안에 그대로 있어야 함.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">Q</div>
+          <div class="step-body">
+            <strong>회사 옵션을 바꿨는데 다음 정산에 안 반영돼요</strong>
+            <span>"정산하기" 버튼을 한 번 더 눌러야 새 옵션으로 재계산됨. 옵션 변경만으로 자동 재계산 X.</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">Q</div>
+          <div class="step-body">
+            <strong>오버레이가 안 사라져요</strong>
+            <span>드물게 세션 단절 시 발생. <kbd>F5</kbd> 또는 페이지 새로고침으로 해결. 정산 결과는 백엔드에 안 남으므로 다시 정산 필요.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ──────────────────── 15. 마무리 ──────────────────── -->
+  <div class="slide">
+    <div class="slide-inner hero">
+      <h1>끝!</h1>
+      <div class="sub">문의 / 버그 신고는 담당자에게</div>
+      <div class="meta">
+        배포: <a style="color:#fff; text-decoration:underline;" href="https://sphgmp.streamlit.app/" target="_blank">sphgmp.streamlit.app</a><br>
+        저장소: GitHub (사내 전용)
+      </div>
+      <div class="meta" style="margin-top:40px; font-size:0.85rem; opacity:0.6;">
+        <kbd style="color:#1f2933;">←</kbd> <kbd style="color:#1f2933;">→</kbd> 로 슬라이드 이동 ·
+        <kbd style="color:#1f2933;">Space</kbd> 다음 슬라이드
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ──────────────────── 네비게이션 ──────────────────── -->
+<div class="nav">
+  <button id="prev" aria-label="이전 슬라이드">‹</button>
+  <span class="pageinfo" id="pageinfo">1 / 15</span>
+  <button id="next" aria-label="다음 슬라이드">›</button>
+  <span class="hint">← → 키 / Space</span>
+</div>
+
+<script>
+(function() {
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  const progress = document.getElementById('progress');
+  const pageinfo = document.getElementById('pageinfo');
+  const prevBtn = document.getElementById('prev');
+  const nextBtn = document.getElementById('next');
+  let cur = 0;
+
+  function render(idx) {
+    cur = Math.max(0, Math.min(total - 1, idx));
+    slides.forEach((s, i) => s.classList.toggle('active', i === cur));
+    progress.style.width = ((cur + 1) / total * 100) + '%';
+    pageinfo.textContent = (cur + 1) + ' / ' + total;
+    prevBtn.disabled = (cur === 0);
+    nextBtn.disabled = (cur === total - 1);
+    // URL hash 동기화 (북마크/공유 가능)
+    if (location.hash !== '#' + (cur + 1)) {
+      history.replaceState(null, '', '#' + (cur + 1));
+    }
+  }
+
+  prevBtn.addEventListener('click', () => render(cur - 1));
+  nextBtn.addEventListener('click', () => render(cur + 1));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+      e.preventDefault(); render(cur + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault(); render(cur - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault(); render(0);
+    } else if (e.key === 'End') {
+      e.preventDefault(); render(total - 1);
+    }
+  });
+
+  // URL hash 로 진입 시 해당 슬라이드 표시
+  const initial = parseInt((location.hash || '').replace('#', ''), 10);
+  render(isNaN(initial) ? 0 : initial - 1);
+})();
+</script>
+
+</body>
+</html>
