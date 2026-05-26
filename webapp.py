@@ -1549,34 +1549,15 @@ def render_batch_billing_ui(
     results:     list[dict] = []
     safe_re = _re.compile(r'[\\/*?:"<>|]')
 
-    # 정산 시작 직전 — 체크된 회사의 widget 값(은행/문구)을 영구 저장.
-    # 환율/날짜는 일괄 입력값을 따르므로 회사별 영구 저장 X.
-    _save_data = _load_rate_labels()
-    for _c in _checked:
-        _ncc = _norm_of.get(_c) or _norm_account_key(_c)
-        _bank_s = (st.session_state.get(f"_batch_bank_{_ncc}", "") or "").strip()
-        _bank_match = _match_bank_prefix(_bank_s)
-        _bank_final = _bank_match or _bank_s or DEFAULT_BANK_NAME
-        _phr_state  = st.session_state.get(f"_batch_phrase_{_ncc}", DEFAULT_RATE_PHRASE)
-        if _phr_state == "✏️ 직접 입력":
-            _phr_typed = st.session_state.get(f"_batch_phrase_txt_{_ncc}", "") or ""
-            _phr_final = _phr_typed.strip() or DEFAULT_RATE_PHRASE
-        else:
-            _phr_final = _phr_state or DEFAULT_RATE_PHRASE
-        _existing = _save_data.get(_c) or {}
-        _save_data[_c] = {
-            "bank":   _bank_final,
-            "phrase": _phr_final,
-            "extra":  _existing.get("extra", ""),
-            "date":   _existing.get("date"),
-            "rate":   _existing.get("rate"),
-        }
-    SAVED_RATE_LABEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SAVED_RATE_LABEL_FILE.write_text(
-        json.dumps(_save_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    _rate_all = _save_data
-    _rate_norm = _norm_dict(_save_data)
+    # 정산 시작 직전 — saved_rate_label.json 재로드만.
+    # ⚠ 이전: 체크된 회사 전체에 대해 session_state 값으로 일괄 덮어쓰는
+    # 루프가 있었으나, 사용자가 편집 안 한 회사도 session_state 비어 있어
+    # default("하나은행"/"최종 송금환율 기준") 로 강제 덮어쓰는 사고 발생.
+    # data_editor 편집 시점에 이미 _save_rate_label_for_account 가 호출
+    # 되어 즉시 영구 저장되므로 이 루프는 중복이라 제거. 정산 루프 진입
+    # 직전에 최신 saved 값만 재로드.
+    _rate_all = _load_rate_labels()
+    _rate_norm = _norm_dict(_rate_all)
 
     import time as _t_perf2
     _t_loop_start = _t_perf2.time()
