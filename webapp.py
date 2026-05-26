@@ -957,9 +957,11 @@ def render_batch_billing_ui(
         st.markdown("#### 💱 일괄 입력 (USD 회사에만 적용)")
         c1, c2 = st.columns([1, 1])
         with c1:
+            # 단일 모드와 동일 UX — 비어있으면 빨간 테두리(CSS placeholder-shown).
             batch_rate = st.number_input(
                 "환율 (₩/$)",
-                min_value=0.0, value=1400.0, step=0.01, format="%.2f",
+                min_value=0.0, value=None, step=0.01, format="%.2f",
+                placeholder="예: 1427.87",
                 key="_batch_rate_input",
                 help="USD 단가표 회사들에만 적용. 변경 시 회사선택 영역의 "
                      "환율도 일괄 갱신됩니다.",
@@ -985,7 +987,11 @@ def render_batch_billing_ui(
     # data_editor 의 버전 카운터를 증가시켜 강제 재마운트 → 편집 델타 무시.
     _prev_br = st.session_state.get("_prev_batch_rate")
     _prev_bd_state = st.session_state.get("_prev_batch_date")
-    _do_sync_rate = (_prev_br is None) or (batch_rate != _prev_br)
+    # batch_rate=None(빈칸) 이면 sync 생략 — 0/None 이 회사별로 퍼지지 않도록.
+    _do_sync_rate = (
+        batch_rate is not None
+        and ((_prev_br is None) or (batch_rate != _prev_br))
+    )
     _do_sync_date = (_prev_bd_state is None) or (batch_rate_date != _prev_bd_state)
     if _do_sync_rate or _do_sync_date:
         for _cc in companies:
@@ -1262,6 +1268,10 @@ def render_batch_billing_ui(
             if not (dl_xlsx or dl_pdf):
                 st.warning("다운로드 형식(엑셀/PDF) 을 1개 이상 선택해 주세요.")
                 return
+            # 환율 미입력 차단 — 빨간 테두리로 시각적 안내 + 클릭 시 경고
+            if st.session_state.get("_batch_rate_input") is None:
+                st.warning("환율을 입력해 주세요. (빨간 테두리 표시 영역)")
+                return
             st.session_state["_batch_start_trigger"] = True
             st.rerun()  # page rerun — fragment 밖 정산 실행 로직 트리거.
 
@@ -1372,7 +1382,7 @@ def render_batch_billing_ui(
             # 환율/날짜 — widget session_state 의 현재 값 사용. 사용자가 회사
             # 별로 따로 수정한 경우 그 값이, 아니면 일괄값(동기화됨) 이 사용됨.
             _rate_state  = st.session_state.get(f"_batch_rate_{_nc}", batch_rate)
-            _rate_for_c  = float(_rate_state)
+            _rate_for_c  = float(_rate_state) if _rate_state is not None else 0.0
             _date_state  = st.session_state.get(f"_batch_date_{_nc}")
             if isinstance(_date_state, _dt.date):
                 _rate_date_for_c = _date_state.strftime("%Y.%m.%d")
@@ -1826,7 +1836,9 @@ div[data-testid="stTextInput"] input:not(:disabled) {
 
 /* 환율 인풋: 달러 모드에서 비어있으면 빨간 테두리 (입력하면 자동 해제). */
 .st-key-_rate_raw_input div[data-baseweb="input"]:has(input:not(:disabled):placeholder-shown),
-.st-key-_rate_raw_input div[data-baseweb="base-input"]:has(input:not(:disabled):placeholder-shown) {
+.st-key-_rate_raw_input div[data-baseweb="base-input"]:has(input:not(:disabled):placeholder-shown),
+.st-key-_batch_rate_input div[data-baseweb="input"]:has(input:not(:disabled):placeholder-shown),
+.st-key-_batch_rate_input div[data-baseweb="base-input"]:has(input:not(:disabled):placeholder-shown) {
     border-color: #ef4444 !important;
     box-shadow: 0 0 0 1px #ef4444 !important;
 }
@@ -5101,9 +5113,11 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
         st.markdown("#### 💱 일괄 입력 (USD 회사에만 적용)")
         c1, c2 = st.columns([1, 1])
         with c1:
+            # 단일 모드와 동일 UX — 비어있으면 빨간 테두리(CSS placeholder-shown).
             batch_rate = st.number_input(
                 "환율 (₩/$)",
-                min_value=0.0, value=1400.0, step=0.01, format="%.2f",
+                min_value=0.0, value=None, step=0.01, format="%.2f",
+                placeholder="예: 1427.87",
                 key="_batch_rate_input",
                 help="USD 단가표 회사들에만 적용. KRW 회사는 환율 무관.",
             )
@@ -5223,6 +5237,11 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
 
     if not (dl_xlsx or dl_pdf):
         st.info("다운로드 형식(엑셀/PDF) 을 1개 이상 선택해 주세요.")
+        return
+
+    # 환율 미입력 차단 — 빨간 테두리로 시각적 안내. 빈 상태로 시작 막음.
+    if st.session_state.get("_batch_rate_input") is None:
+        st.warning("환율을 입력해 주세요. (빨간 테두리 표시 영역)")
         return
 
     _start = st.button(
