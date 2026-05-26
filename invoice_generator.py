@@ -946,14 +946,16 @@ def _write_summary_rows(ws, sku_rows: list[dict], exchange_rate, margin_rate,
         return r, rate_row, _sum_row
 
     # 최소사용비용 적용: 합계(KRW) + 월최소사용비용(KRW) + 청구금액(KRW)
+    # 사용자 회사별 설정값(min_charge_krw) 사용. legacy MIN_CHARGE_KRW=500_000
+    # 상수는 더 이상 데이터 출력 경로에서 사용 안 함.
     r += 1
     subtotal_krw_formula = (f"=ROUND(I{usd_row}*I{rate_row},2)" if _m == 1.0
                             else f"=ROUND(I{usd_row}*I{rate_row}*{_m},2)")
     _render_summary_row(ws, r, "합        계(KRW)", subtotal_krw_formula, dark=False)
     r += 1
-    _render_summary_row(ws, r, "월최소사용비용(KRW)", MIN_CHARGE_KRW, dark=False)
+    _render_summary_row(ws, r, "월최소사용비용(KRW)", min_charge_krw, dark=False)
     r += 1
-    _render_summary_row(ws, r, _final_krw_label, MIN_CHARGE_KRW,
+    _render_summary_row(ws, r, _final_krw_label, min_charge_krw,
                         dark=True, label_align=_final_krw_align)
     _sum_row = r if is_per_proj else None
     if is_last_proj:
