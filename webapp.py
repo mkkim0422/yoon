@@ -915,6 +915,9 @@ def render_batch_billing_ui(
             ]
             if not _visible_companies:
                 st.caption(f"🔍 '{_search_q}' 와 일치하는 회사가 없습니다.")
+                # 빈 DataFrame 으로 진행하면 _df.drop(columns=["_nc"]) 에서
+                # KeyError. 검색 결과 0개는 fragment 를 그냥 빠져나간다.
+                return
         else:
             _visible_companies = list(companies)
 
