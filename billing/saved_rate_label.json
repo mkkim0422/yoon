@@ -7,22 +7,22 @@
     "rate": 1455.0
   },
   "Bespinglobal-Myrealtrip": {
-    "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "bank": "서울외국환",
+    "phrase": "매매기준",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
   },
   "Bespinglobal-Socar": {
-    "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "bank": "서울외국환",
+    "phrase": "매매기준",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
   },
   "BespinGlobal-TeamO2": {
-    "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "bank": "서울외국환",
+    "phrase": "매매기준",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
@@ -336,8 +336,8 @@
     "rate": 1455.0
   },
   "Bespinglobal-Vanpl": {
-    "bank": "하나은행",
-    "phrase": "최종 송금환율 기준",
+    "bank": "서울외국환",
+    "phrase": "매매기준",
     "extra": "",
     "date": "2026-04-29",
     "rate": 1455.0
