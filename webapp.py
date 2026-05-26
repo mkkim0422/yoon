@@ -1031,21 +1031,21 @@ def render_batch_billing_ui(
                     '환율을 입력해 주세요</div>',
                     unsafe_allow_html=True,
                 )
-                # DOM 안정 후 포커스 — st.html 실행 시점에 number_input 이 아직
-                # 렌더 중일 수 있어 짧게 retry. unsafe_allow_javascript=True 필수
-                # (안 주면 Streamlit 이 <script> 차단).
-                st.html(
+                # JS 실행 보장: st.html 은 환경에 따라 script 차단되므로
+                # components.v1.html (iframe 렌더) 사용. iframe 안에서 부모
+                # 문서 접근으로 number_input 찾고 retry 로 DOM 안정 대기.
+                from streamlit.components.v1 import html as _focus_html
+                _focus_html(
                     """
                     <script>
                     (function(){
                       function tryFocus(attempt){
                         try {
-                          var container = window.parent.document.querySelector(
-                            '.st-key-_batch_rate_input'
-                          );
+                          var doc = window.parent.document;
+                          var container = doc.querySelector('.st-key-_batch_rate_input');
                           if (!container) {
                             if (attempt < 30) return setTimeout(
-                              function(){ tryFocus(attempt+1); }, 60
+                              function(){ tryFocus(attempt+1); }, 80
                             );
                             return;
                           }
@@ -1053,12 +1053,14 @@ def render_batch_billing_ui(
                             'input:not([type="hidden"])'
                           );
                           if (inp && !inp.disabled) {
-                            inp.focus();
                             inp.scrollIntoView({behavior:'smooth', block:'center'});
-                            try {
-                              var len = (inp.value || '').length;
-                              inp.setSelectionRange(len, len);
-                            } catch(e) {}
+                            setTimeout(function(){
+                              try {
+                                inp.focus();
+                                var len = (inp.value || '').length;
+                                inp.setSelectionRange(len, len);
+                              } catch(e) {}
+                            }, 250);
                           }
                         } catch(e) {}
                       }
@@ -1066,7 +1068,7 @@ def render_batch_billing_ui(
                     })();
                     </script>
                     """,
-                    unsafe_allow_javascript=True,
+                    height=0,
                 )
         with c2:
             batch_rate_date = st.date_input(
