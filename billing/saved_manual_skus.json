@@ -585,5 +585,8 @@
     "Dynamic Maps",
     "Dynamic Street View",
     "Static Maps"
+  ],
+  "Bespinglobal-Vanpl": [
+    "Geocoding"
   ]
 }
