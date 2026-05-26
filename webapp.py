@@ -1583,9 +1583,11 @@ def render_batch_billing_ui(
     # 회사마다 stdin 으로 변환 명령만 전달 → 2번째 호출부터 회사당 2~4초.
     from pdf_export import BatchExcelPdf as _BatchExcelPdf
     _pdf_ctx = _BatchExcelPdf() if dl_pdf else None
-    if _pdf_ctx is not None:
-        _pdf_ctx.__enter__()
     try:
+      # __enter__ 도 try 안에서 호출 — 서버 시작 자체에서 예외가 나도 finally
+      # 에서 안전하게 __exit__(=정리) 가 불리도록.
+      if _pdf_ctx is not None:
+          _pdf_ctx.__enter__()
       with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
