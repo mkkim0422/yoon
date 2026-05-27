@@ -4450,9 +4450,22 @@ if True:
         # 별도 영역 제공. 위의 회사 단위 SKU 에디터는 fallback 으로 사용됨 (빈
         # 설정인 프로젝트는 회사 기본). 데이터 저장: saved_orders.json 에
         # "회사__proj__프로젝트명" 키 (Phase 1 인프라).
-        _company_mode_curr = _load_billing_modes().get(
-            _order_account_key, BILLING_MODE_ACCOUNT
-        )
+        #
+        # ⚠ 모드 판정 — _load_billing_modes() 대신 session_state 우선 사용.
+        # col_right 의 라디오가 저장하기 **전** 에 이 코드가 실행되므로 파일에서
+        # 읽으면 한 박자 지연되어 "반대로 동작" 처럼 보임. 라디오 widget 의
+        # session_state key 에서 직접 현재 라벨을 가져와 즉시 반영.
+        _mode_state_key = f"_billing_mode_radio::{_order_account_key}"
+        _mode_label_in_state = st.session_state.get(_mode_state_key)
+        if _mode_label_in_state == "프로젝트별 독립 waterfall":
+            _company_mode_curr = BILLING_MODE_PER_PROJECT
+        elif _mode_label_in_state == "회사 통합 (Google 실제 청구 방식)":
+            _company_mode_curr = BILLING_MODE_ACCOUNT
+        else:
+            # 라디오가 아직 렌더 안 됐거나 키 없을 때 (첫 진입) — 저장값 fallback
+            _company_mode_curr = _load_billing_modes().get(
+                _order_account_key, BILLING_MODE_ACCOUNT
+            )
         if _company_mode_curr == BILLING_MODE_PER_PROJECT and selected_company:
             with col_left, st.container(border=True, key="proj_sku_panel"):
                 st.markdown("#### 🗂 프로젝트별 SKU 노출 (per_project 모드 전용)")
