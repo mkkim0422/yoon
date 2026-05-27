@@ -60,6 +60,8 @@ SAVED_ORDERS_PP_FILE         = Path(__file__).parent / "billing" / "saved_orders
 SAVED_MANUAL_SKUS_PP_FILE    = Path(__file__).parent / "billing" / "saved_manual_skus_per_project.json"
 SAVED_HIDDEN_SKUS_PP_FILE    = Path(__file__).parent / "billing" / "saved_hidden_skus_per_project.json"
 SAVED_PROJECT_ORDERS_FILE    = Path(__file__).parent / "billing" / "saved_project_orders.json"
+# 일괄 zip 다운로드 파일명 카운터 — billing_month 별 N번째 다운로드 추적.
+SAVED_BATCH_ZIP_COUNTER_FILE = Path(__file__).parent / "billing" / "saved_batch_zip_counter.json"
 
 # 일괄 정산 "⭐ 즐겨찾기" 버튼 클릭 시 체크되는 회사 명단 (임시 하드코딩).
 # 검색 무관 전체 적용. 1인 사용 환경 가정으로 별도 JSON 저장 없이 코드에 박음.
@@ -593,6 +595,41 @@ def _format_eta_seconds(seconds: float) -> str:
     else:
         _bucket = max(30, round(_m / 10) * 10)
     return f"약 {_bucket}분"
+
+
+# ── 일괄 zip 다운로드 파일명 규칙 ─────────────────────────────────────────────
+# 파일명 형식: "전체정산_YYYY_MM_YYMMDD[(N)].zip"
+#   YYYY_MM = billing_month (예: 2026-04 → 2026_04)
+#   YYMMDD  = 다운로드 받는 날짜 (예: 2026-05-27 → 260527)
+#   (N)     = 같은 billing_month 의 2번째부터 (1), (2), … (첫 다운로드는 suffix 없음)
+# 카운터는 billing_month 키로 JSON 영구 저장 (streamlit rerun / 프로세스 재시작에도 유지).
+def _next_batch_zip_filename(billing_month: str | None) -> str:
+    _key = billing_month or "all"
+    _month_part = _key.replace("-", "_")
+    _today = _dt.date.today().strftime("%y%m%d")
+
+    counter: dict[str, int] = {}
+    if SAVED_BATCH_ZIP_COUNTER_FILE.exists():
+        try:
+            counter = json.loads(
+                SAVED_BATCH_ZIP_COUNTER_FILE.read_text(encoding="utf-8")
+            ) or {}
+        except Exception:
+            counter = {}
+    n = int(counter.get(_key, 0) or 0)
+    if n == 0:
+        fname = f"전체정산_{_month_part}_{_today}.zip"
+    else:
+        fname = f"전체정산_{_month_part}_{_today}({n}).zip"
+    counter[_key] = n + 1
+    try:
+        SAVED_BATCH_ZIP_COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SAVED_BATCH_ZIP_COUNTER_FILE.write_text(
+            json.dumps(counter, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+    return fname
 
 
 def _render_batch_overlay(
@@ -1278,7 +1315,7 @@ def _render_batch_summary(cache: dict) -> None:
     if n_ok > 0 and zip_bytes:
         # 다운로드 버튼 — 정산 후 첫 렌더에 한해 JS 로 자동 클릭.
         st.download_button(
-            f"📦 zip 다운로드 ({zip_name})",
+            "📦 zip 다운로드",
             data=zip_bytes,
             file_name=zip_name,
             mime="application/zip",
@@ -1287,32 +1324,39 @@ def _render_batch_summary(cache: dict) -> None:
             key="_batch_zip_dl_btn",
         )
         # auto_dl_pending 플래그가 켜져 있으면 1회 자동 클릭 후 끈다.
+        # st.html 은 Cloud 환경에서 인라인 <script> 가 차단되어 동작 안 하던
+        # 사례가 있어, components.v1.html (iframe) 로 부모 DOM 의 버튼을 클릭한다.
+        # 초기 클릭 지연 1.5초 — 즉시 클릭 시 다운로드 버튼이 DOM 에 안정적으로
+        # 마운트되기 전이라 실패하는 케이스 회피.
         if st.session_state.pop("_batch_auto_dl_pending", False):
-            st.html(
+            from streamlit.components.v1 import html as _auto_dl_html
+            _auto_dl_html(
                 """
                 <script>
                 (function(){
-                  if (window.__sphBatchAutoDl) return;
+                  if (window.parent.__sphBatchAutoDl) return;
                   function tryClick(n){
-                    const doc = window.parent ? window.parent.document : document;
-                    const btns = doc.querySelectorAll(
-                        '[data-testid="stDownloadButton"] button'
-                    );
-                    for (const b of btns){
-                      const t = (b.innerText || "").trim();
-                      if (t.includes("zip 다운로드")){
-                        window.__sphBatchAutoDl = true;
-                        b.click();
-                        return;
+                    try {
+                      const doc = window.parent.document;
+                      const btns = doc.querySelectorAll(
+                          '[data-testid="stDownloadButton"] button'
+                      );
+                      for (const b of btns){
+                        const t = (b.innerText || "").trim();
+                        if (t.includes("zip 다운로드")){
+                          window.parent.__sphBatchAutoDl = true;
+                          b.click();
+                          return;
+                        }
                       }
-                    }
+                    } catch(e) {}
                     if (n < 40) setTimeout(()=>tryClick(n+1), 150);
                   }
-                  setTimeout(()=>tryClick(0), 200);
+                  setTimeout(()=>tryClick(0), 1500);
                 })();
                 </script>
                 """,
-                unsafe_allow_javascript=True,
+                height=0,
             )
     else:
         st.info("다운로드할 결과가 없습니다.")
@@ -2156,8 +2200,7 @@ def render_batch_billing_ui(
     n_total  = len(results)
 
     # 캐시에 저장 → 다운로드 클릭 등으로 rerun 되어도 결과 요약 유지.
-    _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    _zip_name = f"전체정산_{billing_month or 'all'}_{_ts}.zip"
+    _zip_name = _next_batch_zip_filename(billing_month)
     st.session_state["_batch_summary_cache"] = {
         "results":        results,
         "log_lines":      log_lines,
@@ -6379,10 +6422,9 @@ def _legacy_render_batch_billing_ui_DEPRECATED(
 
     # zip 다운로드
     if n_ok > 0:
-        _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        _zip_name = f"전체정산_{billing_month or 'all'}_{_ts}.zip"
+        _zip_name = _next_batch_zip_filename(billing_month)
         st.download_button(
-            f"📦 zip 다운로드 ({_zip_name})",
+            "📦 zip 다운로드",
             data=zip_buf.getvalue(),
             file_name=_zip_name,
             mime="application/zip",
