@@ -124,7 +124,23 @@ def _is_tax_sku(name: str) -> bool:
 # 하드코딩 화이트리스트 없이 저장/로드. 회사마다 실제로 쓰는 SKU 가
 # 다르므로, 저장된 순서 중 CSV 에 없는 항목은 나중에 `_existing` 교집합
 # 단계에서 자연스럽게 걸러진다(사용 이력이 있는 SKU 만 UI 에 노출됨).
+# 프로젝트별 SKU 순서 저장 키 prefix — per_project 모드 회사가 같은 SKU 셋을
+# 강제로 모든 프로젝트에 뿌리지 않고 프로젝트마다 다른 SKU 노출 순서를 가질 수
+# 있게 한다. backward compat: 회사 단위 키 (예: "hanatour") 는 그대로 두고
+# 새 키만 추가 (예: "hanatour__proj__BTMS - project").
+_PROJ_ORDER_SEPARATOR = "__proj__"
+
+
+def _proj_order_key(account: str, proj_name: str) -> str:
+    return f"{account}{_PROJ_ORDER_SEPARATOR}{proj_name}"
+
+
+def _is_proj_order_key(key: str) -> bool:
+    return _PROJ_ORDER_SEPARATOR in (key or "")
+
+
 def _load_saved_orders() -> dict[str, list[str]]:
+    """회사 단위 SKU 순서 로드. 프로젝트별 키 (__proj__) 는 제외 (별도 함수로 로드)."""
     if not SAVED_ORDERS_FILE.exists():
         return {}
     try:
@@ -134,8 +150,63 @@ def _load_saved_orders() -> dict[str, list[str]]:
     return {
         acc: [n for n in order if isinstance(n, str) and n]
         for acc, order in data.items()
-        if isinstance(order, list)
+        if isinstance(order, list) and not _is_proj_order_key(acc)
     }
+
+
+def _load_project_order(account: str, proj_name: str,
+                        default_order: list[str] | None = None) -> list[str]:
+    """프로젝트별 SKU 순서. 설정 없으면 default_order (회사 기본) 반환."""
+    if not SAVED_ORDERS_FILE.exists():
+        return list(default_order) if default_order is not None else []
+    try:
+        data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return list(default_order) if default_order is not None else []
+    key = _proj_order_key(account, proj_name)
+    val = data.get(key)
+    if isinstance(val, list):
+        return [n for n in val if isinstance(n, str) and n]
+    return list(default_order) if default_order is not None else []
+
+
+def _save_project_order(account: str, proj_name: str, order: list[str]) -> None:
+    """프로젝트별 SKU 순서 저장. 빈 리스트면 키 삭제 → fallback 으로 회사 기본 사용."""
+    if not SAVED_ORDERS_FILE.exists():
+        data = {}
+    else:
+        try:
+            data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8")) or {}
+        except Exception:
+            data = {}
+    key = _proj_order_key(account, proj_name)
+    cleaned = [str(n) for n in order if n]
+    if cleaned:
+        data[key] = cleaned
+    else:
+        data.pop(key, None)
+    SAVED_ORDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_ORDERS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _load_all_project_orders(account: str) -> dict[str, list[str]]:
+    """해당 회사에 저장된 모든 프로젝트별 SKU 순서를 dict 로 반환.
+    UI 에서 'hanatour 의 어느 프로젝트에 설정값이 있는지' 확인용."""
+    if not SAVED_ORDERS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    prefix = f"{account}{_PROJ_ORDER_SEPARATOR}"
+    out: dict[str, list[str]] = {}
+    for k, v in (data or {}).items():
+        if isinstance(k, str) and k.startswith(prefix) and isinstance(v, list):
+            proj = k[len(prefix):]
+            out[proj] = [n for n in v if isinstance(n, str) and n]
+    return out
 
 
 def _load_company_notes() -> dict[str, str]:
@@ -766,9 +837,18 @@ def _run_batch_single_billing(
                     mode="account",
                     free_cap_override=_proj_sku_free_cap.get(_pid),
                 )
+                # 프로젝트별 SKU 순서 로드 — 설정 없으면 회사 단위 sku_order 사용 (fallback).
+                # 결과 entry 에 "sku_order" 넣어 두면 _write_per_project_merged_sheet
+                # 에서 우선 사용. 회사 단위 sku_order 가 None/빈 list 면 그대로 fallback.
+                _proj_name_for_entry = _proj_name_map[_pid]
+                _proj_sku_order = _load_project_order(
+                    selected_company, _proj_name_for_entry,
+                    default_order=sku_order,
+                )
                 _per_proj_invoices.append({
-                    "proj_name":  _proj_name_map[_pid],
+                    "proj_name":  _proj_name_for_entry,
                     "line_items": _items,
+                    "sku_order":  _proj_sku_order,
                 })
 
         # ── 3) calculate_billing / by_project ────────────────────
