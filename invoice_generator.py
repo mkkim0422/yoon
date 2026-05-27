@@ -147,7 +147,15 @@ def generate_formatted_invoice(
     if strict_canonical and proj_results:
         proj_results = filter_canonical_proj_results(proj_results)
 
+    # ── 진단: xlsx 생성 sub-step 시간 측정 ─────────────────────────
+    import time as _gfi_t
+    _gfi_marks: list[tuple[str, float]] = []
+    _gfi_t0 = _gfi_t.perf_counter()
+    def _gfi_mark(label: str) -> None:
+        _gfi_marks.append((label, _gfi_t.perf_counter() - _gfi_t0))
+
     wb = Workbook()
+    _gfi_mark("Workbook()")
 
     # ── per_project 모드: 프로젝트별 Invoice 시트 ────────────────────────────
     is_per_project = (
@@ -228,6 +236,8 @@ def generate_formatted_invoice(
             subtotal_round=subtotal_round,
         )
 
+    _gfi_mark("invoice sheet(s) done")
+
     # Project 시트 (요약) — account 모드는 단일 Invoice 참조, per_project 모드는
     # 프로젝트별 Invoice 시트를 per_proj_invoice_meta 로 참조.
     # include_project_sheet=False 면 Project 시트 자체를 생성하지 않는다
@@ -244,19 +254,45 @@ def generate_formatted_invoice(
             min_charge_amount=min_charge_amount,
             min_charge_currency=min_charge_currency,
         )
+    _gfi_mark("project summary sheet")
 
     # GMP Price List 시트
     if price_list_file is not None:
         _copy_price_list_sheet(wb, price_list_file)
+    _gfi_mark("price list sheet copy")
 
     if output_path:
         wb.save(str(output_path))
+        _gfi_mark("wb.save (path)")
+        _print_gfi_marks(company_name, _gfi_marks)
         return None
 
     buf = io.BytesIO()
     wb.save(buf)
+    _gfi_mark("wb.save (BytesIO)")
     buf.seek(0)
-    return buf.read()
+    _out = buf.read()
+    _gfi_mark("buf.read")
+    _print_gfi_marks(company_name, _gfi_marks)
+    return _out
+
+
+def _print_gfi_marks(company_name: str, marks: list) -> None:
+    """generate_formatted_invoice 의 sub-step 시간을 한 줄로 출력. 전체 또는
+    상위 sub-step 만 짧게 — 어디서 시간이 사라지는지 즉시 확인용."""
+    if not marks:
+        return
+    # cumulative → per-step delta
+    parts = []
+    prev = 0.0
+    for label, cum in marks:
+        parts.append((label, cum - prev))
+        prev = cum
+    total = prev
+    if total < 0.5:  # 0.5초 미만은 노이즈 — 출력 생략
+        return
+    pretty = " + ".join(f"{lbl} {dt:.2f}" for lbl, dt in parts)
+    print(f"[gfi] {company_name} total {total:.2f}s = {pretty}", flush=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
