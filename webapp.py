@@ -606,7 +606,7 @@ def _format_eta_seconds(seconds: float) -> str:
 def _next_batch_zip_filename(billing_month: str | None) -> str:
     _key = billing_month or "all"
     _month_part = _key.replace("-", "_")
-    _today = _dt.date.today().strftime("%y%m%d")
+    _today = date.today().strftime("%y%m%d")
 
     counter: dict[str, int] = {}
     if SAVED_BATCH_ZIP_COUNTER_FILE.exists():
