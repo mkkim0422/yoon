@@ -44,6 +44,9 @@ SAVED_HIDDEN_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_hidden_s
 SAVED_MANUAL_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_manual_skus.json"
 SAVED_BATCH_SELECTION_FILE = Path(__file__).parent / "billing" / "saved_batch_selection.json"
 SAVED_COMPANY_NOTES_FILE   = Path(__file__).parent / "billing" / "saved_company_notes.json"
+# 일괄 정산 zip 파일명 카운터. 같은 정산월(YYYY-MM) 에 대해 몇 번째 다운로드인지
+# 기록. 첫 번째는 "YYYY-MM.zip", 두 번째부터 "YYYY-MM (1).zip", "(2).zip" ...
+SAVED_DL_COUNTER_FILE      = Path(__file__).parent / "billing" / "saved_dl_counter.json"
 
 # 일괄 정산 "⭐ 즐겨찾기" 버튼 클릭 시 체크되는 회사 명단 (임시 하드코딩).
 # 검색 무관 전체 적용. 1인 사용 환경 가정으로 별도 JSON 저장 없이 코드에 박음.
@@ -594,6 +597,39 @@ def _save_batch_selection(data: dict) -> None:
     SAVED_BATCH_SELECTION_FILE.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+# ── zip 다운로드 파일명 규칙 ───────────────────────────────────────────────
+# 같은 정산월(YYYY-MM) 에 대해 1회: "2026-04.zip", 2회: "2026-04 (1).zip",
+# 3회: "2026-04 (2).zip" … 카운터는 JSON 으로 영구 저장 (streamlit rerun /
+# 프로세스 재시작에도 유지). 다른 월은 독립 카운터.
+def _next_batch_zip_filename(billing_month: str | None) -> str:
+    _month = billing_month or "all"
+    # 카운터 로드
+    counter: dict[str, int] = {}
+    if SAVED_DL_COUNTER_FILE.exists():
+        try:
+            counter = json.loads(SAVED_DL_COUNTER_FILE.read_text(encoding="utf-8")) or {}
+            if not isinstance(counter, dict):
+                counter = {}
+        except Exception:
+            counter = {}
+    n = int(counter.get(_month, 0) or 0)
+    # 파일명 결정 — n=0 일 때는 suffix 없음.
+    if n == 0:
+        fname = f"{_month}.zip"
+    else:
+        fname = f"{_month} ({n}).zip"
+    # 카운터 +1 저장
+    counter[_month] = n + 1
+    try:
+        SAVED_DL_COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SAVED_DL_COUNTER_FILE.write_text(
+            json.dumps(counter, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+    return fname
 
 
 # ── 일괄 정산: 단일 회사 정산 함수 ─────────────────────────────────────────
@@ -1858,16 +1894,56 @@ def render_batch_billing_ui(
             st.markdown("  \n".join(_timings_lines))
 
     if n_ok > 0:
-        _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        _zip_name = f"전체정산_{billing_month or 'all'}_{_ts}.zip"
+        # 같은 batch 결과에 대해 한 번만 파일명 결정 + 카운터 증가.
+        # zip 콘텐츠 hash 로 새 batch 인지 식별 (rerun 시 같은 이름 유지).
+        import hashlib as _hl
+        _zip_bytes = zip_buf.getvalue()
+        _batch_key = _hl.md5(_zip_bytes[:4096]).hexdigest()
+        if st.session_state.get("_batch_zip_key") != _batch_key:
+            _zip_name = _next_batch_zip_filename(billing_month)
+            st.session_state._batch_zip_key      = _batch_key
+            st.session_state._batch_zip_name     = _zip_name
+            st.session_state._batch_auto_dl_key  = _batch_key  # 자동 클릭 1회 트리거
+        else:
+            _zip_name = st.session_state.get("_batch_zip_name") or f"{billing_month or 'all'}.zip"
+
         st.download_button(
             f"📦 zip 다운로드 ({_zip_name})",
-            data=zip_buf.getvalue(),
+            data=_zip_bytes,
             file_name=_zip_name,
             mime="application/zip",
             type="primary",
             use_container_width=True,
+            key="_batch_zip_dl_btn",
         )
+
+        # 정산 완료 직후 1회 자동 클릭 — 단일 모드와 동일 패턴.
+        # st.download_button 은 blob 다운로드라 a[href=data:] 보다 안전.
+        _auto_key = st.session_state.get("_batch_auto_dl_key")
+        if _auto_key and st.session_state.get("_batch_auto_dl_fired") != _auto_key:
+            st.html(
+                f"""
+                <script>
+                (function(){{
+                  const KEY = {json.dumps(_auto_key)};
+                  if (window.__sphBatchAutoDlKey === KEY) return;
+                  window.__sphBatchAutoDlKey = KEY;
+                  function tryClick(){{
+                    const btns = Array.from(document.querySelectorAll('button'))
+                      .filter(b => (b.textContent || '').indexOf('zip 다운로드') !== -1);
+                    if (!btns.length) return false;
+                    btns[0].click();
+                    return true;
+                  }}
+                  let n = 0;
+                  const iv = setInterval(() => {{
+                    if (tryClick() || ++n > 40) clearInterval(iv);  // 최대 4s 대기
+                  }}, 100);
+                }})();
+                </script>
+                """,
+            )
+            st.session_state._batch_auto_dl_fired = _auto_key
     else:
         st.info("다운로드할 결과가 없습니다.")
 
