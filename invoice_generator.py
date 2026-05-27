@@ -539,12 +539,6 @@ def _write_per_project_merged_sheet(
     for idx, entry in enumerate(per_project_invoices):
         proj_name  = str(entry.get("proj_name") or f"Project {idx+1}")
         proj_items = filter_func(entry.get("line_items") or [])
-        # 프로젝트별 SKU 순서 — entry["sku_order"] 있으면 우선 사용, 없으면 회사
-        # 단위 sku_order (인자) fallback. webapp 의 _run_batch_single_billing 가
-        # _load_project_order 로 미리 준비함.
-        _proj_sku_order = entry.get("sku_order")
-        if not _proj_sku_order:
-            _proj_sku_order = sku_order
         _sheet_title = _safe_sheet_title(proj_name, used=tmp_wb.sheetnames)
         ws = tmp_wb.create_sheet(_sheet_title)
         _is_last = (idx == _n_proj - 1)
@@ -556,7 +550,7 @@ def _write_per_project_merged_sheet(
         _sku_rows, _rate_row, _sum_row = _write_invoice_sheet(
             ws, proj_items, company_name, billing_month,
             invoice_date, exchange_rate, margin_rate, bank_name,
-            sku_order=_proj_sku_order, currency=currency,
+            sku_order=sku_order, currency=currency,
             project_name=proj_name,
             min_charge_amount=min_charge_amount,
             min_charge_currency=min_charge_currency,

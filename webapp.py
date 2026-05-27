@@ -124,23 +124,7 @@ def _is_tax_sku(name: str) -> bool:
 # 하드코딩 화이트리스트 없이 저장/로드. 회사마다 실제로 쓰는 SKU 가
 # 다르므로, 저장된 순서 중 CSV 에 없는 항목은 나중에 `_existing` 교집합
 # 단계에서 자연스럽게 걸러진다(사용 이력이 있는 SKU 만 UI 에 노출됨).
-# 프로젝트별 SKU 순서 저장 키 prefix — per_project 모드 회사가 같은 SKU 셋을
-# 강제로 모든 프로젝트에 뿌리지 않고 프로젝트마다 다른 SKU 노출 순서를 가질 수
-# 있게 한다. backward compat: 회사 단위 키 (예: "hanatour") 는 그대로 두고
-# 새 키만 추가 (예: "hanatour__proj__BTMS - project").
-_PROJ_ORDER_SEPARATOR = "__proj__"
-
-
-def _proj_order_key(account: str, proj_name: str) -> str:
-    return f"{account}{_PROJ_ORDER_SEPARATOR}{proj_name}"
-
-
-def _is_proj_order_key(key: str) -> bool:
-    return _PROJ_ORDER_SEPARATOR in (key or "")
-
-
 def _load_saved_orders() -> dict[str, list[str]]:
-    """회사 단위 SKU 순서 로드. 프로젝트별 키 (__proj__) 는 제외 (별도 함수로 로드)."""
     if not SAVED_ORDERS_FILE.exists():
         return {}
     try:
@@ -150,63 +134,8 @@ def _load_saved_orders() -> dict[str, list[str]]:
     return {
         acc: [n for n in order if isinstance(n, str) and n]
         for acc, order in data.items()
-        if isinstance(order, list) and not _is_proj_order_key(acc)
+        if isinstance(order, list)
     }
-
-
-def _load_project_order(account: str, proj_name: str,
-                        default_order: list[str] | None = None) -> list[str]:
-    """프로젝트별 SKU 순서. 설정 없으면 default_order (회사 기본) 반환."""
-    if not SAVED_ORDERS_FILE.exists():
-        return list(default_order) if default_order is not None else []
-    try:
-        data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return list(default_order) if default_order is not None else []
-    key = _proj_order_key(account, proj_name)
-    val = data.get(key)
-    if isinstance(val, list):
-        return [n for n in val if isinstance(n, str) and n]
-    return list(default_order) if default_order is not None else []
-
-
-def _save_project_order(account: str, proj_name: str, order: list[str]) -> None:
-    """프로젝트별 SKU 순서 저장. 빈 리스트면 키 삭제 → fallback 으로 회사 기본 사용."""
-    if not SAVED_ORDERS_FILE.exists():
-        data = {}
-    else:
-        try:
-            data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
-    key = _proj_order_key(account, proj_name)
-    cleaned = [str(n) for n in order if n]
-    if cleaned:
-        data[key] = cleaned
-    else:
-        data.pop(key, None)
-    SAVED_ORDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SAVED_ORDERS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-def _load_all_project_orders(account: str) -> dict[str, list[str]]:
-    """해당 회사에 저장된 모든 프로젝트별 SKU 순서를 dict 로 반환.
-    UI 에서 'hanatour 의 어느 프로젝트에 설정값이 있는지' 확인용."""
-    if not SAVED_ORDERS_FILE.exists():
-        return {}
-    try:
-        data = json.loads(SAVED_ORDERS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    prefix = f"{account}{_PROJ_ORDER_SEPARATOR}"
-    out: dict[str, list[str]] = {}
-    for k, v in (data or {}).items():
-        if isinstance(k, str) and k.startswith(prefix) and isinstance(v, list):
-            proj = k[len(prefix):]
-            out[proj] = [n for n in v if isinstance(n, str) and n]
-    return out
 
 
 def _load_company_notes() -> dict[str, str]:
@@ -362,7 +291,6 @@ def _save_subtotal_round_for_account(account: str, value: int) -> None:
 # per_project_invoices 의 **sku_name 매칭 항목만** 제거한다 → 엔진 결과에는
 # 영향 없이 출력물에서만 빠진다.
 def _load_hidden_skus_map() -> dict[str, list[str]]:
-    """회사 단위 hidden SKU 로드. 프로젝트별 키 (__proj__) 는 제외."""
     if not SAVED_HIDDEN_SKUS_FILE.exists():
         return {}
     try:
@@ -371,7 +299,7 @@ def _load_hidden_skus_map() -> dict[str, list[str]]:
         return {}
     out: dict[str, list[str]] = {}
     for acc, lst in data.items():
-        if not isinstance(acc, str) or _is_proj_order_key(acc):
+        if not isinstance(acc, str):
             continue
         if isinstance(lst, list):
             out[acc] = [str(x) for x in lst if isinstance(x, str) and x.strip()]
@@ -379,14 +307,7 @@ def _load_hidden_skus_map() -> dict[str, list[str]]:
 
 
 def _save_hidden_skus_for_account(account: str, skus: list[str]) -> None:
-    """기존 데이터 보존 — load 가 __proj__ 키 필터링하므로 raw 파일에서 다시 로드."""
-    if not SAVED_HIDDEN_SKUS_FILE.exists():
-        data = {}
-    else:
-        try:
-            data = json.loads(SAVED_HIDDEN_SKUS_FILE.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
+    data = _load_hidden_skus_map()
     data[account] = [str(s) for s in skus if isinstance(s, str) and s.strip()]
     SAVED_HIDDEN_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     SAVED_HIDDEN_SKUS_FILE.write_text(
@@ -394,65 +315,11 @@ def _save_hidden_skus_for_account(account: str, skus: list[str]) -> None:
     )
 
 
-# ── 프로젝트별 hidden SKU (per_project 모드 회사) ──────────────────────────
-def _load_project_hidden(account: str, proj_name: str,
-                         default: list[str] | None = None) -> list[str]:
-    if not SAVED_HIDDEN_SKUS_FILE.exists():
-        return list(default) if default is not None else []
-    try:
-        data = json.loads(SAVED_HIDDEN_SKUS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return list(default) if default is not None else []
-    key = _proj_order_key(account, proj_name)
-    val = data.get(key)
-    if isinstance(val, list):
-        return [n for n in val if isinstance(n, str) and n.strip()]
-    return list(default) if default is not None else []
-
-
-def _save_project_hidden(account: str, proj_name: str, skus: list[str]) -> None:
-    if not SAVED_HIDDEN_SKUS_FILE.exists():
-        data = {}
-    else:
-        try:
-            data = json.loads(SAVED_HIDDEN_SKUS_FILE.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
-    key = _proj_order_key(account, proj_name)
-    cleaned = [str(s) for s in skus if isinstance(s, str) and s.strip()]
-    if cleaned:
-        data[key] = cleaned
-    else:
-        data.pop(key, None)
-    SAVED_HIDDEN_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SAVED_HIDDEN_SKUS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-def _load_all_project_hidden(account: str) -> dict[str, list[str]]:
-    """회사의 모든 프로젝트별 hidden SKU dict 반환 (UI 용)."""
-    if not SAVED_HIDDEN_SKUS_FILE.exists():
-        return {}
-    try:
-        data = json.loads(SAVED_HIDDEN_SKUS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    prefix = f"{account}{_PROJ_ORDER_SEPARATOR}"
-    out: dict[str, list[str]] = {}
-    for k, v in (data or {}).items():
-        if isinstance(k, str) and k.startswith(prefix) and isinstance(v, list):
-            proj = k[len(prefix):]
-            out[proj] = [n for n in v if isinstance(n, str) and n.strip()]
-    return out
-
-
 # 사용자가 UI 에서 수동으로 "마스터 SKU 목록에서 가져와 강제로 노출"한 항목.
 # 현재 CSV 에 사용량이 없는 SKU 도 인보이스에 빈 라인으로 노출하고 싶을 때 사용.
 # sku_order 의 가장 마지막에 [직접등록] prefix 로 들어가며, 사용자가 X 버튼으로
 # 개별 제거 가능.
 def _load_manual_skus_map() -> dict[str, list[str]]:
-    """회사 단위 manual SKU 로드. 프로젝트별 키 (__proj__) 는 제외."""
     if not SAVED_MANUAL_SKUS_FILE.exists():
         return {}
     try:
@@ -461,7 +328,7 @@ def _load_manual_skus_map() -> dict[str, list[str]]:
         return {}
     out: dict[str, list[str]] = {}
     for acc, lst in data.items():
-        if not isinstance(acc, str) or _is_proj_order_key(acc):
+        if not isinstance(acc, str):
             continue
         if isinstance(lst, list):
             out[acc] = [str(x) for x in lst if isinstance(x, str) and x.strip()]
@@ -469,71 +336,12 @@ def _load_manual_skus_map() -> dict[str, list[str]]:
 
 
 def _save_manual_skus_for_account(account: str, skus: list[str]) -> None:
-    """기존 데이터 보존 — load 가 __proj__ 키 필터링하므로 raw 파일에서 다시 로드."""
-    if not SAVED_MANUAL_SKUS_FILE.exists():
-        data = {}
-    else:
-        try:
-            data = json.loads(SAVED_MANUAL_SKUS_FILE.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
+    data = _load_manual_skus_map()
     data[account] = [str(s) for s in skus if isinstance(s, str) and s.strip()]
     SAVED_MANUAL_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     SAVED_MANUAL_SKUS_FILE.write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-
-
-# ── 프로젝트별 manual SKU (per_project 모드 회사) ──────────────────────────
-def _load_project_manual(account: str, proj_name: str,
-                         default: list[str] | None = None) -> list[str]:
-    if not SAVED_MANUAL_SKUS_FILE.exists():
-        return list(default) if default is not None else []
-    try:
-        data = json.loads(SAVED_MANUAL_SKUS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return list(default) if default is not None else []
-    key = _proj_order_key(account, proj_name)
-    val = data.get(key)
-    if isinstance(val, list):
-        return [n for n in val if isinstance(n, str) and n.strip()]
-    return list(default) if default is not None else []
-
-
-def _save_project_manual(account: str, proj_name: str, skus: list[str]) -> None:
-    if not SAVED_MANUAL_SKUS_FILE.exists():
-        data = {}
-    else:
-        try:
-            data = json.loads(SAVED_MANUAL_SKUS_FILE.read_text(encoding="utf-8")) or {}
-        except Exception:
-            data = {}
-    key = _proj_order_key(account, proj_name)
-    cleaned = [str(s) for s in skus if isinstance(s, str) and s.strip()]
-    if cleaned:
-        data[key] = cleaned
-    else:
-        data.pop(key, None)
-    SAVED_MANUAL_SKUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SAVED_MANUAL_SKUS_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-def _load_all_project_manual(account: str) -> dict[str, list[str]]:
-    if not SAVED_MANUAL_SKUS_FILE.exists():
-        return {}
-    try:
-        data = json.loads(SAVED_MANUAL_SKUS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    prefix = f"{account}{_PROJ_ORDER_SEPARATOR}"
-    out: dict[str, list[str]] = {}
-    for k, v in (data or {}).items():
-        if isinstance(k, str) and k.startswith(prefix) and isinstance(v, list):
-            proj = k[len(prefix):]
-            out[proj] = [n for n in v if isinstance(n, str) and n.strip()]
-    return out
 
 
 # ── 일괄 정산 선택 상태 저장/로드 ──────────────────────────────────────────
@@ -958,18 +766,9 @@ def _run_batch_single_billing(
                     mode="account",
                     free_cap_override=_proj_sku_free_cap.get(_pid),
                 )
-                # 프로젝트별 SKU 순서 로드 — 설정 없으면 회사 단위 sku_order 사용 (fallback).
-                # 결과 entry 에 "sku_order" 넣어 두면 _write_per_project_merged_sheet
-                # 에서 우선 사용. 회사 단위 sku_order 가 None/빈 list 면 그대로 fallback.
-                _proj_name_for_entry = _proj_name_map[_pid]
-                _proj_sku_order = _load_project_order(
-                    selected_company, _proj_name_for_entry,
-                    default_order=sku_order,
-                )
                 _per_proj_invoices.append({
-                    "proj_name":  _proj_name_for_entry,
+                    "proj_name":  _proj_name_map[_pid],
                     "line_items": _items,
-                    "sku_order":  _proj_sku_order,
                 })
 
         # ── 3) calculate_billing / by_project ────────────────────
@@ -2330,23 +2129,6 @@ def _unique_skus_for_account(tmp_path: str, billing_month: str,
             continue
         usage_by_name[nm] = usage_by_name.get(nm, 0) + int(r.get("usage_amount") or 0)
     return sorted(nm for nm, u in usage_by_name.items() if u > 0)
-
-
-def _project_names_for_account(tmp_path: str, billing_month: str,
-                                account: str | None) -> list[str]:
-    """선택된 계정의 CSV 에서 등장하는 프로젝트 이름 리스트 (정렬).
-    per_project 모드 회사의 프로젝트별 SKU 노출 설정 UI 에서 사용.
-    """
-    rows = preprocess_usage_file(
-        tmp_path, billing_month, company_filter=account
-    )
-    seen: dict[str, str] = {}  # project_id → project_name (첫 등장 우선)
-    for r in rows:
-        pid = (r.get("project_id") or "").strip()
-        pname = (r.get("project_name") or "").strip() or pid
-        if pname and pname not in seen.values():
-            seen[pid or pname] = pname
-    return sorted(set(seen.values()))
 
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
