@@ -600,8 +600,8 @@ def _save_batch_selection(data: dict) -> None:
 
 
 # ── zip 다운로드 파일명 규칙 ───────────────────────────────────────────────
-# 같은 정산월(YYYY-MM) 에 대해 1회: "2026-04.zip", 2회: "2026-04 (1).zip",
-# 3회: "2026-04 (2).zip" … 카운터는 JSON 으로 영구 저장 (streamlit rerun /
+# 같은 정산월(YYYY-MM) 에 대해 1회: "2026-04.zip", 2회: "2026-04(1).zip",
+# 3회: "2026-04(2).zip" … 카운터는 JSON 으로 영구 저장 (streamlit rerun /
 # 프로세스 재시작에도 유지). 다른 월은 독립 카운터.
 def _next_batch_zip_filename(billing_month: str | None) -> str:
     _month = billing_month or "all"
@@ -615,11 +615,11 @@ def _next_batch_zip_filename(billing_month: str | None) -> str:
         except Exception:
             counter = {}
     n = int(counter.get(_month, 0) or 0)
-    # 파일명 결정 — n=0 일 때는 suffix 없음.
+    # 파일명 결정 — n=0 일 때는 suffix 없음. 공백 없이 "YYYY-MM(N).zip".
     if n == 0:
         fname = f"{_month}.zip"
     else:
-        fname = f"{_month} ({n}).zip"
+        fname = f"{_month}({n}).zip"
     # 카운터 +1 저장
     counter[_month] = n + 1
     try:
