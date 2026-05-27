@@ -405,6 +405,7 @@ try:
             continue
         xlsx_path, pdf_path, sheet_name = parts
         wb = None
+        ws = None
         try:
             wb = excel.Workbooks.Open(
                 os.path.abspath(xlsx_path), ReadOnly=True, UpdateLinks=0
@@ -463,18 +464,42 @@ try:
             sys.stdout.write(f"ERR\t{err_short}\n")
             sys.stdout.flush()
         finally:
+            # COM 참조를 명시적으로 해제 — Excel.Quit() 이 깨끗히 끝나려면
+            # workbook/worksheet 프록시를 풀어줘야 함. 안 그러면 Excel.exe 가
+            # 좀비로 남고 외부 taskkill 이 필요해짐.
             try:
                 if wb is not None:
                     wb.Close(SaveChanges=False)
             except Exception:
                 pass
+            wb = None
+            ws = None
 
 except Exception:
     sys.stderr.write(traceback.format_exc())
 finally:
+    # Excel.Quit() 성공률을 높이기 위한 권장 순서:
+    #   1) 모든 COM 객체 참조 해제 (wb, ws 는 위에서 None, excel 만 남음)
+    #   2) gc.collect() 로 win32com 프록시 즉시 회수
+    #   3) Quit() 호출
+    #   4) Quit 직후 짧게 대기 — Excel 이 실제로 종료될 시간 확보
+    import gc, time as _time
+    try:
+        gc.collect()
+    except Exception:
+        pass
     try:
         if excel is not None:
             excel.Quit()
+    except Exception:
+        pass
+    excel = None
+    try:
+        gc.collect()
+    except Exception:
+        pass
+    try:
+        _time.sleep(0.3)
     except Exception:
         pass
     try:
@@ -616,12 +641,11 @@ class BatchExcelPdf:
         # Excel COM 좀비 강제 정리 — Quit() 이 행되거나 subprocess 강제 종료
         # 된 경우에도 우리가 띄운 Excel 만 골라서 taskkill. 사용자가 별도로
         # 띄운 Excel 은 _excel_pids_before 에 포함되어 있어 건드리지 않음.
+        # 조용히 정리 — print 안 함 (정상적인 보완 동작이므로).
         if self._our_excel_pids:
             alive = self._our_excel_pids & _list_excel_pids()
             if alive:
-                killed = _kill_pids(alive)
-                if killed > 0:
-                    print(f"[BatchExcelPdf] 좀비 Excel {killed}개 강제 정리 (PID={sorted(alive)})", flush=True)
+                _kill_pids(alive)
             self._our_excel_pids = set()
         if self._base is not None:
             try:
