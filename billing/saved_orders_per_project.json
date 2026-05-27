@@ -1,0 +1,37 @@
+{
+  "hanatour": {
+    "map-for-work-ext-125836178": [
+      "Dynamic Maps",
+      "Static Maps",
+      "Directions",
+      "Autocomplete - Per Request",
+      "Autocomplete Requests",
+      "Autocomplete without Places Details - Per Session",
+      "Atmosphere Data",
+      "Contact Data",
+      "Places - Text Search",
+      "Places API Nearby Search Enterprise",
+      "Places API Nearby Search Pro",
+      "Places API Place Details Enterprise",
+      "Places API Place Details Enterprise + Atmosphere",
+      "Places API Place Details Photos",
+      "Places API Place Details Pro",
+      "Places API Text Search Enterprise",
+      "Places Details",
+      "Places Photo",
+      "Geocoding",
+      "Queries",
+      "Autocomplete (included with Places Details) - Per Session",
+      "Basic Data",
+      "Places Details - ID Refresh"
+    ],
+    "hanatour-openchat": [
+      "Geocoding",
+      "Geolocation",
+      "Maps SDK"
+    ],
+    "hanatour-btms-project": [
+      "Dynamic Maps"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "hanatour": {
+    "order": [
+      "map-for-work-ext-125836178",
+      "hanatour-btms-project",
+      "hanatour-openchat"
+    ],
+    "labels": {
+      "map-for-work-ext-125836178": "hanatour - project",
+      "hanatour-openchat": "hanatour-openchat",
+      "hanatour-btms-project": "hanatour-BTMS - project"
+    }
+  }
+}

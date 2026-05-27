@@ -112,6 +112,8 @@ def generate_formatted_invoice(
     include_project_sheet: bool = True,
     subtotal_round: int | None = None,
     force_keep_skus: set[str] | None = None,
+    sku_order_per_project: dict[str, list[str]] | None = None,
+    project_order_names: list[str] | None = None,
 ) -> bytes | None:
     """
     Invoice 시트를 생성한다.
@@ -147,15 +149,7 @@ def generate_formatted_invoice(
     if strict_canonical and proj_results:
         proj_results = filter_canonical_proj_results(proj_results)
 
-    # ── 진단: xlsx 생성 sub-step 시간 측정 ─────────────────────────
-    import time as _gfi_t
-    _gfi_marks: list[tuple[str, float]] = []
-    _gfi_t0 = _gfi_t.perf_counter()
-    def _gfi_mark(label: str) -> None:
-        _gfi_marks.append((label, _gfi_t.perf_counter() - _gfi_t0))
-
     wb = Workbook()
-    _gfi_mark("Workbook()")
 
     # ── per_project 모드: 프로젝트별 Invoice 시트 ────────────────────────────
     is_per_project = (
@@ -170,32 +164,74 @@ def generate_formatted_invoice(
     per_proj_invoice_meta: dict[str, dict] = {}
 
     if is_per_project:
-        # 단일 시트 통합 — 임시 wb 에 기존 3-시트 로직 그대로 실행 → main "Invoice"
-        # 시트로 통합 복사 (cross-sheet 참조는 self-sheet 참조로 변환).
-        # 기존 _write_invoice_sheet 와 헬퍼들은 안 건드림. 결과값 100% 동일.
-        _default = wb.active
-        wb.remove(_default)
-        per_proj_invoice_meta, _first_info = _write_per_project_merged_sheet(
-            wb, per_project_invoices,
-            company_name=company_name,
-            billing_month=billing_month,
-            invoice_date=invoice_date,
-            exchange_rate=exchange_rate,
-            margin_rate=margin_rate,
-            bank_name=bank_name,
-            sku_order=sku_order,
-            currency=currency,
-            min_charge_amount=min_charge_amount,
-            min_charge_currency=min_charge_currency,
-            rate_date_str=rate_date_str,
-            rate_phrase=rate_phrase,
-            rate_extra=rate_extra,
-            subtotal_round=subtotal_round,
-            filter_func=_filter,
+        # 단일 "Invoice" 시트에 프로젝트별 블록을 세로로 스택. 각 블록은
+        # 자체 상단 이미지 + 헤더(Invoice Date/Account/Project/Term) + 테이블
+        # 헤더 + SKU 데이터 + 자체 합계 + (부가세 별도) + SPH 푸터 이미지를
+        # 모두 포함하는 완전한 인보이스 블록이다. 마지막 블록의 합계 행 뒤에
+        # 모든 블록의 "합계(KRW)" 를 SUM 한 "청구금액(KRW)" 행이 한 번만 추가된다.
+        ws = wb.active
+        ws.title = "Invoice"
+        _n_proj = len(per_project_invoices)
+        # 배경(흰색)·컬럼 폭은 시트 전체에 한 번만 적용 (블록마다 다시 칠할 필요 없음).
+        _total_skus = sum(
+            len([it for it in (e.get("line_items") or []) if not _is_tax_sku(it.sku_name)])
+            for e in per_project_invoices
         )
-        first_sku_rows   = _first_info["first_sku_rows"]
-        first_rate_row   = _first_info["first_rate_row"]
-        first_line_items = _first_info["first_line_items"]
+        _set_white_background(ws, max_row=(30 + 6 * _total_skus + 20 * _n_proj))
+        _set_column_widths(ws)
+
+        _prev_sum_refs: list[str] = []   # 이전 블록들의 합계(KRW) 셀 참조 (I{row})
+        row_offset = 0
+        _bottom_row = 0
+        for idx, entry in enumerate(per_project_invoices):
+            proj_name  = str(entry.get("proj_name") or f"Project {idx+1}")
+            proj_id    = str(entry.get("proj_id") or "")
+            proj_items = _filter(entry.get("line_items") or [])
+            _this_sku_order = (
+                (sku_order_per_project or {}).get(proj_id) if proj_id else None
+            ) or sku_order
+            _is_last = (idx == _n_proj - 1)
+            _ctx = {
+                "is_last":          _is_last,
+                "prev_sum_refs":    list(_prev_sum_refs),
+                "self_sheet_title": "",   # 단일 시트 — 시트 prefix 없이 I{row}.
+            }
+            _sku_rows, _rate_row, _sum_row, _bottom_row = _write_invoice_sheet(
+                ws, proj_items, company_name, billing_month,
+                invoice_date, exchange_rate, margin_rate, bank_name,
+                sku_order=_this_sku_order, currency=currency,
+                project_name=proj_name,
+                min_charge_amount=min_charge_amount,
+                min_charge_currency=min_charge_currency,
+                use_item_free_cap=True,
+                rate_date_str=rate_date_str,
+                rate_phrase=rate_phrase,
+                rate_extra=rate_extra,
+                per_proj_ctx=_ctx,
+                subtotal_round=subtotal_round,
+                row_offset=row_offset,
+                # skip_chrome=True → 시트 단위 chrome(흰배경/컬럼폭/freeze_pane)
+                # 은 루프 전후로 한 번씩만 처리. 이미지 영역/VAT 노트/SPH 푸터는
+                # _write_invoice_sheet 내부에서 블록마다 그린다.
+                skip_chrome=True,
+            )
+            per_proj_invoice_meta[proj_name] = {
+                "sheet_title": "Invoice",
+                "sku_rows":    _sku_rows,
+                "rate_row":    _rate_row,
+                "sum_row":     _sum_row,
+            }
+            if _sum_row is not None:
+                _prev_sum_refs.append(f"I{_sum_row}")
+            if idx == 0:
+                first_sku_rows   = _sku_rows
+                first_rate_row   = _rate_row
+                first_line_items = proj_items
+            # 블록 사이 빈 줄 (45 행) — 다음 블록의 상단 이미지 영역이
+            # _bottom_row + 45 + 1 위치(1+row_offset) 부터 그려진다.
+            row_offset = _bottom_row + 45
+        # 전체 루프 끝난 뒤 freeze_pane 한 번만 (account 모드와 동일 UX).
+        _set_freeze_pane(ws)
     else:
         ws = wb.active
         ws.title = "Invoice"
@@ -203,7 +239,7 @@ def generate_formatted_invoice(
         _proj_name_for_header = ""
         if proj_results and len(proj_results) == 1:
             _proj_name_for_header = str(proj_results[0].get("proj_name") or "")
-        first_sku_rows, first_rate_row, _ = _write_invoice_sheet(
+        first_sku_rows, first_rate_row, _, _ = _write_invoice_sheet(
             ws, line_items, company_name, billing_month,
             invoice_date, exchange_rate, margin_rate, bank_name,
             sku_order=sku_order, currency=currency,
@@ -215,8 +251,6 @@ def generate_formatted_invoice(
             rate_extra=rate_extra,
             subtotal_round=subtotal_round,
         )
-
-    _gfi_mark("invoice sheet(s) done")
 
     # Project 시트 (요약) — account 모드는 단일 Invoice 참조, per_project 모드는
     # 프로젝트별 Invoice 시트를 per_proj_invoice_meta 로 참조.
@@ -233,46 +267,21 @@ def generate_formatted_invoice(
             currency=currency,
             min_charge_amount=min_charge_amount,
             min_charge_currency=min_charge_currency,
+            project_order_names=project_order_names,
         )
-    _gfi_mark("project summary sheet")
 
     # GMP Price List 시트
     if price_list_file is not None:
         _copy_price_list_sheet(wb, price_list_file)
-    _gfi_mark("price list sheet copy")
 
     if output_path:
         wb.save(str(output_path))
-        _gfi_mark("wb.save (path)")
-        _print_gfi_marks(company_name, _gfi_marks)
         return None
 
     buf = io.BytesIO()
     wb.save(buf)
-    _gfi_mark("wb.save (BytesIO)")
     buf.seek(0)
-    _out = buf.read()
-    _gfi_mark("buf.read")
-    _print_gfi_marks(company_name, _gfi_marks)
-    return _out
-
-
-def _print_gfi_marks(company_name: str, marks: list) -> None:
-    """generate_formatted_invoice 의 sub-step 시간을 한 줄로 출력. 전체 또는
-    상위 sub-step 만 짧게 — 어디서 시간이 사라지는지 즉시 확인용."""
-    if not marks:
-        return
-    # cumulative → per-step delta
-    parts = []
-    prev = 0.0
-    for label, cum in marks:
-        parts.append((label, cum - prev))
-        prev = cum
-    total = prev
-    if total < 0.5:  # 0.5초 미만은 노이즈 — 출력 생략
-        return
-    pretty = " + ".join(f"{lbl} {dt:.2f}" for lbl, dt in parts)
-    print(f"[gfi] {company_name} total {total:.2f}s = {pretty}", flush=True)
+    return buf.read()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -290,30 +299,41 @@ def _write_invoice_sheet(
     rate_extra: str = "",
     per_proj_ctx: dict | None = None,
     subtotal_round: int | None = None,
-) -> tuple[list[dict], int | None, int | None]:
-    """한 워크시트에 Invoice 레이아웃을 작성하고 (sku_rows, rate_row, sum_row) 반환.
+    row_offset: int = 0,
+    skip_chrome: bool = False,
+) -> tuple[list[dict], int | None, int | None, int]:
+    """한 워크시트에 Invoice 레이아웃을 작성하고 (sku_rows, rate_row, sum_row, bottom_row) 반환.
 
-    per_project 모드에서도 각 시트는 단일 프로젝트의 line_items 를 다루므로,
-    G 열(수량) 은 account 모드와 동일한 waterfall 수식을 사용한다.
-    (하드코딩 `_pp_tier_qty` 경로는 master 미등록 SKU 에서 0 이 되는 문제가
-     있어 per_project 분리 시트 구조에선 불필요.)
+    row_offset: 시트 시작점(행 0). per_project stacked 모드에서 두 번째 이상
+        프로젝트 블록을 같은 시트의 아래쪽 영역에 작성할 때 사용.
+    skip_chrome: True 면 시트 전체 배경/컬럼 폭/상단 이미지 등 시트 chrome 작업과
+        VAT note / 하단 이미지 / freeze pane 을 생략. stacked 모드에서 첫 블록만
+        chrome 을 그리고 나머지는 콘텐츠만 추가할 때 사용.
 
-    sum_row 는 per_project 모드에서 이 시트의 "합계(KRW)" 행 번호. 마지막
-    시트의 총합 "청구금액(KRW)" 수식을 구성할 때 사용. account 모드는 None.
+    per_project 모드 별도 시트(legacy) — 동일 시트 내 행 오프셋(row_offset)으로도
+    호출 가능. row_offset=0 / skip_chrome=False 가 기본 (account 모드 호환).
+
+    sum_row 는 per_project 모드에서 이 블록의 "합계(KRW)" 행 번호. 마지막
+    블록의 총합 "청구금액(KRW)" 수식을 구성할 때 사용. account 모드는 None.
     """
     _n_items       = len([it for it in line_items if not _is_tax_sku(it.sku_name)])
-    _estimated_max = 6 + 6 * _n_items + 3 + 3 + 2
-    _set_white_background(ws, max_row=_estimated_max)
-    _set_column_widths(ws)
-    _write_image_area(ws)
+    _estimated_max = 6 + 6 * _n_items + 3 + 3 + 2 + row_offset
+    if not skip_chrome:
+        _set_white_background(ws, max_row=_estimated_max)
+        _set_column_widths(ws)
+    # 상단 이미지 영역은 stacked 모드라도 각 블록마다 그려야 한다 (블록당 1세트).
+    # row_offset=0 인 첫 블록(또는 account 모드) 은 시트 최상단, 이후 블록은
+    # 그 블록의 시작점(=row_offset+1) 에 같은 이미지/타이틀이 반복된다.
+    _write_image_area(ws, row_offset=row_offset)
     _write_invoice_info(ws, company_name, billing_month, invoice_date,
-                        project_name=project_name)
-    _write_table_header(ws)
+                        project_name=project_name, row_offset=row_offset)
+    _write_table_header(ws, row_offset=row_offset)
     last_data_row, sku_rows = _write_data_rows(
         ws, line_items, sku_order=sku_order, currency=currency,
         billing_mode="account",
         use_item_free_cap=use_item_free_cap,
         subtotal_round=subtotal_round,
+        start_row=(DATA_START_ROW + row_offset),
     )
     bottom_row, rate_row, sum_row = _write_summary_rows(
         ws, sku_rows, exchange_rate, margin_rate,
@@ -326,300 +346,15 @@ def _write_invoice_sheet(
         rate_extra=rate_extra,
         per_proj_ctx=per_proj_ctx,
     )
+    # VAT 노트 + 하단 푸터 이미지는 각 블록마다 그린다 (stacked 모드도 동일).
+    # 푸터까지 그린 뒤의 마지막 행을 bottom_row 로 갱신해 다음 블록 offset 계산에 사용.
     _write_vat_note(ws, bottom_row)
     _write_bottom_image(ws, bottom_row + 2)
-    _set_freeze_pane(ws)
-    return sku_rows, rate_row, sum_row
-
-
-import re as _re_mod
-
-def _convert_cross_sheet_refs(
-    formula: str,
-    sheet_offset_map: dict,
-    current_row_offset: int = 0,
-) -> str:
-    """수식 안의 cross-sheet 참조를 같은 시트의 행 오프셋 적용 self 참조로 변환.
-
-    중요: 호출 순서가 Translator 적용 **이후** 라 cross-sheet 행번호도 이미
-    Translator 에 의해 +current_row_offset 됐다고 가정. 따라서 sheet 이름의
-    target row_offset 을 적용하기 전에 current_row_offset 만큼 빼서 원래 행
-    복원 후 target_offset 적용 (이중 + 방지).
-
-    예시 (sheet_offset_map = {'BTMS': 0, 'openchat': 30}, current_row_offset=64):
-      Translator 후 입력:  =SUM('BTMS'!I83, 'openchat'!I95)
-      원래 행 복원:        'BTMS'!I{83-64}=I19, 'openchat'!I{95-64}=I31
-      target 적용:         I{19+0}=I19, I{31+30}=I61
-      결과: =SUM(I19, I61)
-
-    'GMP Price List' 같은 보존 시트는 sheet_offset_map 에 없으므로 그대로 둠.
-    """
-    def repl(m):
-        sheet_name = m.group(1) or m.group(2)
-        col_ref = m.group(3)
-        row_str = m.group(4)
-        if sheet_name not in sheet_offset_map:
-            return m.group(0)  # 보존 시트 (GMP Price List) — 그대로
-        target_offset = sheet_offset_map[sheet_name]
-        row_abs = row_str.startswith("$")
-        row_num = int(row_str.lstrip("$"))
-        # Translator 가 이미 +current_row_offset 적용한 것을 빼서 원래 행 복원
-        original_row = row_num - current_row_offset
-        new_row = original_row + target_offset
-        return f"{col_ref}{'$' if row_abs else ''}{new_row}"
-
-    pattern = r"(?:'([^']+)'|([A-Za-z_][A-Za-z0-9_]*))!(\$?[A-Z]+)(\$?[0-9]+)"
-    return _re_mod.sub(pattern, repl, formula)
-
-
-def _copy_block_to_sheet(
-    src_ws, dst_ws, row_offset: int,
-    *, sheet_offset_map: dict | None = None,
-) -> int:
-    """src_ws 전체를 dst_ws 의 (row_offset+1) 행부터 복사.
-    수식: (1) cross-sheet 참조는 sheet_offset_map 으로 self-sheet 참조 변환
-          (2) 같은 시트 셀 참조는 Translator 로 +row_offset
-    스타일은 copy() 로 실체 인스턴스 생성.
-    """
-    from openpyxl.formula.translate import Translator
-    from openpyxl.cell.cell import MergedCell
-
-    max_r = src_ws.max_row or 1
-    max_c = src_ws.max_column or 1
-
-    if row_offset == 0:
-        if src_ws.sheet_format.defaultColWidth:
-            dst_ws.sheet_format.defaultColWidth = src_ws.sheet_format.defaultColWidth
-        if src_ws.sheet_format.defaultRowHeight:
-            dst_ws.sheet_format.defaultRowHeight = src_ws.sheet_format.defaultRowHeight
-        for col_letter, col_dim in src_ws.column_dimensions.items():
-            dst_col = dst_ws.column_dimensions[col_letter]
-            if col_dim.width:
-                dst_col.width = col_dim.width
-            if col_dim.hidden:
-                dst_col.hidden = True
-        dst_ws.sheet_view.showGridLines = src_ws.sheet_view.showGridLines
-
-    for row_idx, row_dim in src_ws.row_dimensions.items():
-        dst_row = dst_ws.row_dimensions[row_idx + row_offset]
-        if row_dim.height:
-            dst_row.height = row_dim.height
-        if row_dim.hidden:
-            dst_row.hidden = True
-
-    for r in range(1, max_r + 1):
-        for c in range(1, max_c + 1):
-            src_cell = src_ws.cell(r, c)
-            dst_cell = dst_ws.cell(r + row_offset, c)
-            if isinstance(dst_cell, MergedCell):
-                continue
-            v = src_cell.value
-            if isinstance(v, str) and v.startswith("="):
-                # 순서 매우 중요:
-                # 1) Translator 가 모든 셀 참조 (cross-sheet 포함) 의 행번호를
-                #    +row_offset 적용
-                # 2) 그 다음 cross-sheet → self-sheet 변환 (current_row_offset
-                #    만큼 빼서 원래 행 복원 후 target_sheet 의 row_offset 적용)
-                # 순서 반대로 하면 cross-sheet 행이 이중으로 +offset 됨.
-                if row_offset != 0:
-                    try:
-                        v = Translator(v, origin=src_cell.coordinate).translate_formula(
-                            dst_cell.coordinate
-                        )
-                    except Exception:
-                        pass
-                if sheet_offset_map:
-                    v = _convert_cross_sheet_refs(v, sheet_offset_map,
-                                                  current_row_offset=row_offset)
-            dst_cell.value = v
-            if src_cell.has_style:
-                dst_cell.font          = copy(src_cell.font)
-                dst_cell.fill          = copy(src_cell.fill)
-                dst_cell.border        = copy(src_cell.border)
-                dst_cell.alignment     = copy(src_cell.alignment)
-                dst_cell.number_format = src_cell.number_format
-                if src_cell.protection:
-                    dst_cell.protection = copy(src_cell.protection)
-
-    for merged_range in list(src_ws.merged_cells.ranges):
-        try:
-            from openpyxl.utils import get_column_letter
-            mc = merged_range
-            new_str = f"{get_column_letter(mc.min_col)}{mc.min_row + row_offset}:" \
-                      f"{get_column_letter(mc.max_col)}{mc.max_row + row_offset}"
-            dst_ws.merge_cells(new_str)
-        except Exception:
-            pass
-
-    for img in list(src_ws._images):
-        try:
-            from openpyxl.drawing.image import Image as _XLImage
-            from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
-            from openpyxl.drawing.xdr import XDRPositiveSize2D
-            from openpyxl.utils.units import pixels_to_EMU
-            new_img = _XLImage(img.ref)
-            new_img.width  = img.width
-            new_img.height = img.height
-            orig_anchor = getattr(img, "anchor", None)
-            if isinstance(orig_anchor, OneCellAnchor):
-                m = orig_anchor._from
-                new_marker = AnchorMarker(col=m.col, colOff=m.colOff,
-                                          row=m.row + row_offset, rowOff=m.rowOff)
-                new_anchor = OneCellAnchor(
-                    _from=new_marker,
-                    ext=XDRPositiveSize2D(
-                        cx=pixels_to_EMU(img.width),
-                        cy=pixels_to_EMU(img.height),
-                    ),
-                )
-                new_img.anchor = new_anchor
-            dst_ws.add_image(new_img)
-        except Exception:
-            pass
-
-    return max_r + row_offset
-
-
-def _write_per_project_merged_sheet(
-    wb: Workbook,
-    per_project_invoices: list[dict],
-    *,
-    company_name: str,
-    billing_month: str,
-    invoice_date,
-    exchange_rate: Decimal,
-    margin_rate: Decimal,
-    bank_name: str,
-    sku_order,
-    currency: str,
-    min_charge_amount: float,
-    min_charge_currency: str,
-    rate_date_str: str | None,
-    rate_phrase: str,
-    rate_extra: str,
-    subtotal_round: int | None,
-    filter_func,
-) -> tuple[dict, dict]:
-    """per_project 단일 시트 통합 (정확 방식).
-
-    전략 (수식/결과값 보존):
-      1) 임시 wb 1개 생성. 그 안에 **기존 3-시트 로직 그대로** 적용 (per_proj_ctx,
-         prev_sum_refs, min_charge 모두 원래 인자 사용). cross-sheet 합산 수식이
-         정상적으로 만들어짐.
-      2) 임시 wb 의 각 시트 → main "Invoice" 시트로 순차 복사. 시트마다 row_offset
-         계산.
-      3) 복사 시 cross-sheet 참조 ('BTMS'!I133 등) 를 같은 시트 self 참조
-         (I{133+btms_offset}) 로 변환. 같은 시트 셀 참조는 Translator 가 행 오프셋
-         자동 적용. 결과: 모든 수식 핵심 패턴 (SUM/ROUND/SUMIF/IF) 보존, 셀 위치만
-         자연스럽게 이동. 계산값 100% 일치.
-
-    기존 _write_invoice_sheet 와 헬퍼들은 안 건드림 (account 모드 안전).
-    """
-    if not per_project_invoices:
-        return {}, {"first_sku_rows": [], "first_rate_row": None, "first_line_items": []}
-
-    main_ws = wb.create_sheet("Invoice")
-    if "Sheet" in wb.sheetnames and wb["Sheet"] is not main_ws:
-        try:
-            wb.remove(wb["Sheet"])
-        except Exception:
-            pass
-
-    # 1) 임시 wb 에 기존 3-시트 모드 그대로 작성
-    tmp_wb = Workbook()
-    _tmp_default = tmp_wb.active
-    tmp_wb.remove(_tmp_default)
-    _n_proj = len(per_project_invoices)
-    _prev_sum_refs: list[str] = []
-    tmp_sheet_info: list[dict] = []   # [{"sheet_title": str, "ws": ws, "sku_rows": [...], "rate_row": n, "sum_row": m}, ...]
-    first_sku_rows: list[dict] = []
-    first_rate_row: int | None = None
-    first_line_items: list = []
-
-    for idx, entry in enumerate(per_project_invoices):
-        proj_name  = str(entry.get("proj_name") or f"Project {idx+1}")
-        proj_items = filter_func(entry.get("line_items") or [])
-        _sheet_title = _safe_sheet_title(proj_name, used=tmp_wb.sheetnames)
-        ws = tmp_wb.create_sheet(_sheet_title)
-        _is_last = (idx == _n_proj - 1)
-        _ctx = {
-            "is_last":          _is_last,
-            "prev_sum_refs":    list(_prev_sum_refs),
-            "self_sheet_title": _sheet_title,
-        }
-        _sku_rows, _rate_row, _sum_row = _write_invoice_sheet(
-            ws, proj_items, company_name, billing_month,
-            invoice_date, exchange_rate, margin_rate, bank_name,
-            sku_order=sku_order, currency=currency,
-            project_name=proj_name,
-            min_charge_amount=min_charge_amount,
-            min_charge_currency=min_charge_currency,
-            use_item_free_cap=True,
-            rate_date_str=rate_date_str,
-            rate_phrase=rate_phrase,
-            rate_extra=rate_extra,
-            per_proj_ctx=_ctx,
-            subtotal_round=subtotal_round,
-        )
-        tmp_sheet_info.append({
-            "sheet_title":  _sheet_title,
-            "proj_name":    proj_name,
-            "ws":           ws,
-            "sku_rows":     _sku_rows,
-            "rate_row":     _rate_row,
-            "sum_row":      _sum_row,
-            "proj_items":   proj_items,
-        })
-        if _sum_row is not None:
-            _safe = _sheet_title.replace("'", "''")
-            _prev_sum_refs.append(f"'{_safe}'!I{_sum_row}")
-        if idx == 0:
-            first_sku_rows   = _sku_rows
-            first_rate_row   = _rate_row
-            first_line_items = proj_items
-
-    # 2) 각 시트의 main 시트 row_offset 결정 (시트 사이 공백 2행)
-    GAP_BETWEEN = 2
-    sheet_offset_map: dict[str, int] = {}
-    cumulative_offset = 0
-    for info in tmp_sheet_info:
-        sheet_offset_map[info["sheet_title"]] = cumulative_offset
-        info["row_offset"] = cumulative_offset
-        cumulative_offset += (info["ws"].max_row or 1) + GAP_BETWEEN
-
-    # 3) 임시 시트 → main 시트 순차 복사 with cross-sheet 변환
-    per_proj_invoice_meta: dict[str, dict] = {}
-    for info in tmp_sheet_info:
-        _copy_block_to_sheet(
-            info["ws"], main_ws,
-            row_offset=info["row_offset"],
-            sheet_offset_map=sheet_offset_map,
-        )
-        adjusted_sku_rows = [
-            dict(s, row=s.get("row", 0) + info["row_offset"]) if isinstance(s, dict) else s
-            for s in info["sku_rows"]
-        ]
-        per_proj_invoice_meta[info["proj_name"]] = {
-            "sheet_title": "Invoice",
-            "sku_rows":    adjusted_sku_rows,
-            "rate_row":    (info["rate_row"] + info["row_offset"]) if info["rate_row"] else None,
-            "sum_row":     (info["sum_row"]  + info["row_offset"]) if info["sum_row"]  else None,
-        }
-
-    # 첫 프로젝트의 sku_rows / rate_row 도 offset 반영해 갱신
-    if tmp_sheet_info:
-        first = tmp_sheet_info[0]
-        first_sku_rows = [
-            dict(s, row=s.get("row", 0) + first["row_offset"]) if isinstance(s, dict) else s
-            for s in first["sku_rows"]
-        ]
-        first_rate_row = (first["rate_row"] + first["row_offset"]) if first["rate_row"] else None
-
-    return per_proj_invoice_meta, {
-        "first_sku_rows":   first_sku_rows,
-        "first_rate_row":   first_rate_row,
-        "first_line_items": first_line_items,
-    }
+    # 푸터 이미지가 차지하는 행(BLOCK_ROWS=4) 까지를 블록의 끝으로 본다.
+    bottom_row = bottom_row + 2 + 4 - 1   # bottom_image 가 차지하는 마지막 행.
+    if not skip_chrome:
+        _set_freeze_pane(ws)
+    return sku_rows, rate_row, sum_row, bottom_row
 
 
 _INVALID_SHEET_CHARS = set(r':\/?*[]')
@@ -666,7 +401,12 @@ def _set_column_widths(ws) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # 내부 헬퍼: Row 1 — 이미지 영역
 # ─────────────────────────────────────────────────────────────────────────────
-def _write_image_area(ws) -> None:
+def _write_image_area(ws, row_offset: int = 0) -> None:
+    """상단 이미지 영역(SPH 로고 / Google Maps Platform Invoice 타이틀) 그리기.
+
+    row_offset: stacked per_project 모드에서 블록마다 이미지 영역을 반복 그릴 때
+        사용. 0 (기본) 이면 시트 최상단(rows 1~4) 에 그린다.
+    """
     from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
     from openpyxl.drawing.xdr import XDRPositiveSize2D
     from openpyxl.utils.units import pixels_to_EMU
@@ -682,23 +422,24 @@ def _write_image_area(ws) -> None:
         img1_h = int(orig_h * target_w / orig_w) if orig_w else target_w
         img1.width  = target_w
         img1.height = img1_h
-        ws.row_dimensions[1].height = int(img1_h * 0.75) + 10
-        ws.row_dimensions[2].height = 10
-        ws.row_dimensions[3].height = 8
-        ws.row_dimensions[4].height = 8
-        marker1 = AnchorMarker(col=1, colOff=0, row=0,
+        ws.row_dimensions[1 + row_offset].height = int(img1_h * 0.75) + 10
+        ws.row_dimensions[2 + row_offset].height = 10
+        ws.row_dimensions[3 + row_offset].height = 8
+        ws.row_dimensions[4 + row_offset].height = 8
+        marker1 = AnchorMarker(col=1, colOff=0, row=0 + row_offset,
                                rowOff=pixels_to_EMU(TOP_OFFSET_PX))
         size1 = XDRPositiveSize2D(pixels_to_EMU(target_w), pixels_to_EMU(img1_h))
         img1.anchor = OneCellAnchor(_from=marker1, ext=size1)
         ws.add_image(img1)
     else:
-        ws.row_dimensions[1].height = 110
-        ws.row_dimensions[2].height = 10
-        ws.row_dimensions[3].height = 8
-        ws.row_dimensions[4].height = 8
-        ws["B1"] = "[tt1: SPH 회사 로고]"
-        ws["B1"].font      = _font(bold=True, size=9, color="888888")
-        ws["B1"].alignment = _align("left", "center")
+        ws.row_dimensions[1 + row_offset].height = 110
+        ws.row_dimensions[2 + row_offset].height = 10
+        ws.row_dimensions[3 + row_offset].height = 8
+        ws.row_dimensions[4 + row_offset].height = 8
+        ws.cell(row=1 + row_offset, column=2, value="[tt1: SPH 회사 로고]")
+        _c = ws.cell(row=1 + row_offset, column=2)
+        _c.font      = _font(bold=True, size=9, color="888888")
+        _c.alignment = _align("left", "center")
 
     if _HAS_IMAGE and tt2_path.exists():
         img2 = XLImage(str(tt2_path))
@@ -707,15 +448,16 @@ def _write_image_area(ws) -> None:
         img2_h = int(orig_h * target_w2 / orig_w) if orig_w else target_w2
         img2.width  = target_w2
         img2.height = img2_h
-        marker2 = AnchorMarker(col=8, colOff=0, row=0,
+        marker2 = AnchorMarker(col=8, colOff=0, row=0 + row_offset,
                                rowOff=pixels_to_EMU(TOP_OFFSET_PX))
         size2 = XDRPositiveSize2D(pixels_to_EMU(target_w2), pixels_to_EMU(img2_h))
         img2.anchor = OneCellAnchor(_from=marker2, ext=size2)
         ws.add_image(img2)
     else:
-        ws["I1"] = "[tt2: Google Maps Platform Invoice]"
-        ws["I1"].font      = _font(bold=True, size=9, color="888888")
-        ws["I1"].alignment = _align("center", "center")
+        ws.cell(row=1 + row_offset, column=9, value="[tt2: Google Maps Platform Invoice]")
+        _c = ws.cell(row=1 + row_offset, column=9)
+        _c.font      = _font(bold=True, size=9, color="888888")
+        _c.alignment = _align("center", "center")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -723,7 +465,8 @@ def _write_image_area(ws) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def _write_invoice_info(ws, company_name: str, billing_month: str,
                         invoice_date: str | None,
-                        project_name: str = "") -> None:
+                        project_name: str = "",
+                        row_offset: int = 0) -> None:
     if invoice_date is None:
         invoice_date = date.today().strftime("%Y-%m-%d")
 
@@ -736,14 +479,14 @@ def _write_invoice_info(ws, company_name: str, billing_month: str,
     # 한 줄이 남는 걸 피하기 위함.
     _has_proj = bool((project_name or "").strip())
     info_rows = [
-        (5, "Invoice Date",         f":  {invoice_date}"),
-        (6, "Billing Account Name", f":  {company_name}"),
+        (5 + row_offset, "Invoice Date",         f":  {invoice_date}"),
+        (6 + row_offset, "Billing Account Name", f":  {company_name}"),
     ]
     if _has_proj:
-        info_rows.append((7, "Project Name", f":  {project_name}"))
-    info_rows.append((8, "Term of Use", f":  {term_start}  ~  {term_end}"))
+        info_rows.append((7 + row_offset, "Project Name", f":  {project_name}"))
+    info_rows.append((8 + row_offset, "Term of Use", f":  {term_start}  ~  {term_end}"))
     if not _has_proj:
-        ws.row_dimensions[7].hidden = True
+        ws.row_dimensions[7 + row_offset].hidden = True
     _no_border = Border()
 
     for row_num, label, value in info_rows:
@@ -784,8 +527,9 @@ TABLE_HEADER_ROW = 10
 HEADERS = ["API", "Usage", "Free Usage", "Subtotal",
            "할인 구간", "수량", "단가", "Amount"]
 
-def _write_table_header(ws) -> None:
-    ws.row_dimensions[TABLE_HEADER_ROW].height = 22
+def _write_table_header(ws, row_offset: int = 0) -> None:
+    _hdr_row = TABLE_HEADER_ROW + row_offset
+    ws.row_dimensions[_hdr_row].height = 22
     # 헤더에서만 F(할인 구간) + G(수량) 을 가로 병합해 "할인 구간" 하나로 표시.
     # 데이터 행은 그대로 두 컬럼 유지 (tier 라벨 / 수량).
     _MERGE_LEFT_IDX, _MERGE_RIGHT_IDX = 4, 5
@@ -797,14 +541,14 @@ def _write_table_header(ws) -> None:
         else:
             _disp = label
         col  = C1 + idx
-        cell = ws.cell(row=TABLE_HEADER_ROW, column=col, value=_disp)
+        cell = ws.cell(row=_hdr_row, column=col, value=_disp)
         cell.font      = _font(bold=True, color=C_WHITE, size=10)
         cell.fill      = _fill(C_DARK)
         cell.alignment = _align("center", "center")
         cell.border    = _BORDER_ALL
     ws.merge_cells(
-        start_row=TABLE_HEADER_ROW, start_column=C1 + _MERGE_LEFT_IDX,
-        end_row=TABLE_HEADER_ROW,   end_column=C1 + _MERGE_RIGHT_IDX,
+        start_row=_hdr_row, start_column=C1 + _MERGE_LEFT_IDX,
+        end_row=_hdr_row,   end_column=C1 + _MERGE_RIGHT_IDX,
     )
 
 
@@ -832,7 +576,8 @@ def _write_data_rows(ws, line_items: list,
                      currency: str = "USD",
                      billing_mode: str = "account",
                      use_item_free_cap: bool = False,
-                     subtotal_round: int | None = None) -> tuple[int, list[dict]]:
+                     subtotal_round: int | None = None,
+                     start_row: int | None = None) -> tuple[int, list[dict]]:
     """각 SKU마다 5개 tier 행 + 1개 소계 행을 수식 기반으로 작성한다.
 
     sku_order가 주어지면 그 순서대로 정렬; 목록에 없는 SKU는 뒤에 알파벳순.
@@ -868,7 +613,7 @@ def _write_data_rows(ws, line_items: list,
         _subtotal_fmt    = '"₩"#,##0' if is_krw else '"$"#,##0'
         _tier_amount_fmt = '"₩"#,##0' if is_krw else '"$"#,##0'
 
-    curr = DATA_START_ROW
+    curr = start_row if start_row is not None else DATA_START_ROW
     sku_rows: list[dict] = []
 
     # tax/VAT 제외
@@ -1453,203 +1198,115 @@ def _merge_write(ws, r1: int, r2: int, col: int, value,
 # ─────────────────────────────────────────────────────────────────────────────
 # 내부 헬퍼: GMP Price List 시트 복제 (MergedCell 완전 방어)
 # ─────────────────────────────────────────────────────────────────────────────
-# Price List 는 모든 회사가 동일한 파일을 본다. 회사마다 6000 셀(200×30) 을
-# src → dst 복사하면 회사당 1.5~2.5 초가 통째로 여기서 소비된다 (gfi 진단 결과).
-# 해결: 같은 price_list_file 에 대해 첫 호출에서 "컴파일된 템플릿" 을 만들고
-# 캐시 → 두 번째 호출부터는 캐시된 셀 데이터·스타일·치수를 새 시트에 그대로
-# 붙여 넣어 ~0.1초로 단축.
-# openpyxl Font/Fill/Border/Alignment 인스턴스는 workbook 간 공유해도 안전
-# (read-only 한 속성 컨테이너, 새 wb 의 _fonts/_fills/_borders 등 registry 에
-# 추가되기만 함).
-# ─────────────────────────────────────────────────────────────────────────────
-_PL_TEMPLATE_CACHE: "OrderedDict" = None  # 초기화는 첫 호출 시
-_PL_TEMPLATE_CACHE_MAX = 4
-
-
-def _get_pl_template(price_list_file) -> dict | None:
-    """price_list_file 에 대한 컴파일된 템플릿을 반환 (캐시). 실패 시 None."""
-    global _PL_TEMPLATE_CACHE
-    if _PL_TEMPLATE_CACHE is None:
-        from collections import OrderedDict as _OD
-        _PL_TEMPLATE_CACHE = _OD()
-
-    from billing.loader import _price_list_key, load_price_list_workbook
-    _key = _price_list_key(price_list_file)
-    if _key is not None and _key in _PL_TEMPLATE_CACHE:
-        _PL_TEMPLATE_CACHE.move_to_end(_key)
-        return _PL_TEMPLATE_CACHE[_key]
-
+def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
+    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제.
+    src_wb 는 read-only 로만 사용하므로 캐시 워크북 공유 안전.
+    """
     try:
+        from billing.loader import load_price_list_workbook
         src_wb = load_price_list_workbook(price_list_file)
     except Exception:
-        return None
+        return
+
     src_ws = src_wb.worksheets[0]
+    dst_ws = wb.create_sheet("GMP Price List")
+    dst_ws.sheet_view.showGridLines = False
+
+    # 탭 색상
+    if src_ws.sheet_properties.tabColor:
+        dst_ws.sheet_properties.tabColor = copy(src_ws.sheet_properties.tabColor)
+
     from openpyxl.utils import get_column_letter
 
+    # 실제 데이터 범위로 제한 (시트 dim A1:Z1005 같이 과대 범위 순회 방지)
     max_row = min(src_ws.max_row or 1, 200)
     max_col = min(src_ws.max_column or 1, 30)
+
+    # 시트 기본값
     default_col_w = src_ws.sheet_format.defaultColWidth or 8.43
+    if src_ws.sheet_format.defaultColWidth:
+        dst_ws.sheet_format.defaultColWidth = src_ws.sheet_format.defaultColWidth
+    if src_ws.sheet_format.defaultRowHeight:
+        dst_ws.sheet_format.defaultRowHeight = src_ws.sheet_format.defaultRowHeight
 
-    # 명시 열 너비
-    explicit_cols: set[str] = set()
-    col_widths: dict[str, float] = {}
-    col_hidden: dict[str, bool] = {}
+    # 명시적 열 너비 복사
+    explicit_cols = set()
     for col_letter, col_dim in src_ws.column_dimensions.items():
+        dst_col = dst_ws.column_dimensions[col_letter]
         if col_dim.width and col_dim.width > 0:
-            col_widths[col_letter] = col_dim.width * 1.2
+            dst_col.width = col_dim.width * 1.2
             explicit_cols.add(col_letter)
-        if col_dim.hidden:
-            col_hidden[col_letter] = True
+        dst_col.hidden = col_dim.hidden
 
-    # auto_w + 셀 값/스타일 추출을 한 번의 iter_rows 패스로 처리
+    # column_dimensions에 없는 열(기본 너비 사용) → 셀 내용 길이로 자동 산정
     auto_w: dict[str, int] = {}
-    cells: list = []
-    cpm_cells: list = []  # CPM 보정 대상 (row, col)
+    for row in src_ws.iter_rows(min_row=1, max_row=max_row,
+                                min_col=1, max_col=max_col):
+        for cell in row:
+            if isinstance(cell, MergedCell) or cell.value is None:
+                continue
+            cl = get_column_letter(cell.column)
+            if cl not in explicit_cols:
+                auto_w[cl] = max(auto_w.get(cl, 0), len(str(cell.value)))
+    for cl, w in auto_w.items():
+        dst_ws.column_dimensions[cl].width = max((w + 4) * 1.3, default_col_w)
+
+    # I열 추가 확장
+    if dst_ws.column_dimensions["I"].width:
+        dst_ws.column_dimensions["I"].width *= 1.25
+
+    # 행 높이
+    for row_idx, row_dim in src_ws.row_dimensions.items():
+        dst_row = dst_ws.row_dimensions[row_idx]
+        dst_row.height = row_dim.height
+        dst_row.hidden = row_dim.hidden
+
+    # 병합 범위 선이식
+    for merged_range in list(src_ws.merged_cells.ranges):
+        try:
+            dst_ws.merge_cells(str(merged_range))
+        except Exception:
+            pass
+
+    # 셀 값 + 스타일 복사 — 실제 데이터 범위로 제한
     for row in src_ws.iter_rows(min_row=1, max_row=max_row,
                                 min_col=1, max_col=max_col):
         for src_cell in row:
             if isinstance(src_cell, MergedCell):
                 continue
-            v = src_cell.value
-            if src_cell.column == 1 and isinstance(v, str):
-                v = v.strip()
 
-            # auto_w 계산용
-            if v is not None:
-                cl = get_column_letter(src_cell.column)
-                if cl not in explicit_cols:
-                    auto_w[cl] = max(auto_w.get(cl, 0), len(str(v)))
+            dst_cell = dst_ws.cell(row=src_cell.row, column=src_cell.column)
 
-            # 스타일 — copy() 한 번만 (캐시되어 모든 후속 회사에서 재사용)
+            if isinstance(dst_cell, MergedCell):
+                continue
+
+            # A 열(SKU 이름) 은 trailing/leading 공백 정리. 사용자 업로드 Price
+            # List 에 'Places API Place Details Enterprise ' 처럼 끝 공백이 있는
+            # 행이 있어, Invoice 의 SUMIF(exact match) 가 빠지는 문제 방지.
+            _v = src_cell.value
+            if src_cell.column == 1 and isinstance(_v, str):
+                _v = _v.strip()
+            dst_cell.value = _v
+
             if src_cell.has_style:
-                font_       = copy(src_cell.font)
-                fill_       = copy(src_cell.fill)
-                border_     = copy(src_cell.border)
-                alignment_  = copy(src_cell.alignment)
-                number_fmt  = src_cell.number_format
-                protection_ = copy(src_cell.protection) if src_cell.protection else None
-            else:
-                font_ = fill_ = border_ = alignment_ = number_fmt = protection_ = None
+                dst_cell.font          = copy(src_cell.font)
+                dst_cell.fill          = copy(src_cell.fill)
+                dst_cell.border        = copy(src_cell.border)
+                dst_cell.alignment     = copy(src_cell.alignment)
+                dst_cell.number_format = src_cell.number_format
+                if src_cell.protection:
+                    dst_cell.protection = copy(src_cell.protection)
 
-            cells.append((
-                src_cell.row, src_cell.column, v,
-                font_, fill_, border_, alignment_, number_fmt, protection_,
-            ))
-
-            if v is not None and "COST PER THOUSAND" in str(v).upper():
-                cpm_cells.append((src_cell.row, src_cell.column))
-
-    # auto_w → 최종 col_widths
-    for cl, w in auto_w.items():
-        col_widths[cl] = max((w + 4) * 1.3, default_col_w)
-    if "I" in col_widths:
-        col_widths["I"] *= 1.25  # I열 추가 확장
-
-    # 행 높이
-    row_heights: dict[int, float] = {}
-    row_hidden: dict[int, bool] = {}
-    for row_idx, row_dim in src_ws.row_dimensions.items():
-        if row_dim.height:
-            row_heights[row_idx] = row_dim.height
-        if row_dim.hidden:
-            row_hidden[row_idx] = True
-
-    # 병합 범위
-    merges = [str(mr) for mr in list(src_ws.merged_cells.ranges)]
-
-    # 탭 색상
-    tab_color = copy(src_ws.sheet_properties.tabColor) if src_ws.sheet_properties.tabColor else None
-
-    # 시트 기본값
-    sheet_default_col_w = src_ws.sheet_format.defaultColWidth
-    sheet_default_row_h = src_ws.sheet_format.defaultRowHeight
-
-    # CPM 보정용 Border (회사 무관 공유)
+    # "COST PER THOUSAND (CPM)" 셀 border 누락 보정 — 실제 데이터 범위만 순회
     _thin = Side(style="thin")
-    cpm_border = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
-
-    template = {
-        "max_row":             max_row,
-        "max_col":             max_col,
-        "tab_color":           tab_color,
-        "sheet_default_col_w": sheet_default_col_w,
-        "sheet_default_row_h": sheet_default_row_h,
-        "col_widths":          col_widths,
-        "col_hidden":          col_hidden,
-        "row_heights":         row_heights,
-        "row_hidden":          row_hidden,
-        "merges":              merges,
-        "cells":               cells,
-        "cpm_cells":           cpm_cells,
-        "cpm_border":          cpm_border,
-    }
-
-    if _key is not None:
-        _PL_TEMPLATE_CACHE[_key] = template
-        while len(_PL_TEMPLATE_CACHE) > _PL_TEMPLATE_CACHE_MAX:
-            _PL_TEMPLATE_CACHE.popitem(last=False)
-    return template
-
-
-def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
-    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제.
-    템플릿 캐시 사용으로 첫 회사 외에는 ~0.1초.
-    """
-    template = _get_pl_template(price_list_file)
-    if template is None:
-        return
-
-    dst_ws = wb.create_sheet("GMP Price List")
-    dst_ws.sheet_view.showGridLines = False
-
-    if template["tab_color"] is not None:
-        dst_ws.sheet_properties.tabColor = template["tab_color"]
-
-    if template["sheet_default_col_w"]:
-        dst_ws.sheet_format.defaultColWidth = template["sheet_default_col_w"]
-    if template["sheet_default_row_h"]:
-        dst_ws.sheet_format.defaultRowHeight = template["sheet_default_row_h"]
-
-    # 열 너비/숨김
-    for cl, w in template["col_widths"].items():
-        dst_ws.column_dimensions[cl].width = w
-    for cl in template["col_hidden"]:
-        dst_ws.column_dimensions[cl].hidden = True
-
-    # 행 높이/숨김
-    for row_idx, h in template["row_heights"].items():
-        dst_ws.row_dimensions[row_idx].height = h
-    for row_idx in template["row_hidden"]:
-        dst_ws.row_dimensions[row_idx].hidden = True
-
-    # 병합 범위
-    for mr in template["merges"]:
-        try:
-            dst_ws.merge_cells(mr)
-        except Exception:
-            pass
-
-    # 셀 값 + 스타일 — 캐시된 인스턴스를 그대로 사용 (copy() 안 함)
-    for r, c, v, font_, fill_, border_, align_, num_fmt, prot_ in template["cells"]:
-        dst_cell = dst_ws.cell(row=r, column=c)
-        if isinstance(dst_cell, MergedCell):
-            continue
-        dst_cell.value = v
-        if font_ is not None:
-            dst_cell.font      = font_
-            dst_cell.fill      = fill_
-            dst_cell.border    = border_
-            dst_cell.alignment = align_
-            dst_cell.number_format = num_fmt
-            if prot_ is not None:
-                dst_cell.protection = prot_
-
-    # CPM 보정
-    cpm_border = template["cpm_border"]
-    for r, c in template["cpm_cells"]:
-        cell = dst_ws.cell(row=r, column=c)
-        if not isinstance(cell, MergedCell):
-            cell.border = cpm_border
+    _border_fix = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+    for row in dst_ws.iter_rows(min_row=1, max_row=max_row,
+                                min_col=1, max_col=max_col):
+        for cell in row:
+            if isinstance(cell, MergedCell):
+                continue
+            if cell.value and "COST PER THOUSAND" in str(cell.value).upper():
+                cell.border = _border_fix
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1732,7 +1389,7 @@ def validate_invoice_excel(
                 _miss = ", ".join(sorted(missing)[:5])
                 _more = "" if len(missing) <= 5 else f" 외 {len(missing)-5}개"
                 warnings.append(
-                    f"[Invoice] Python 측 SKU {len(missing)}개가 엑셀에 누락: {_miss}{_more}"
+                    f"[Invoice] 정산 결과 SKU {len(missing)}개가 엑셀에 누락: {_miss}{_more}"
                 )
 
     return warnings

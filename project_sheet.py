@@ -182,6 +182,7 @@ def write_project_sheet(
     currency: str = "USD",
     min_charge_amount: float = 500_000,
     min_charge_currency: str = "KRW",
+    project_order_names: list[str] | None = None,
 ) -> None:
     """Invoice 시트 내 각 SKU의 header/subtotal 행을 수식으로 참조한다.
     invoice_sku_rows: [{"sku_name","header_row","subtotal_row"}, ...] — Invoice!B/C/I 참조용
@@ -370,7 +371,7 @@ def write_project_sheet(
         ws.cell(row=r_rate, column=LABEL_COL).fill   = _fill(C_WHITE)
         ws.cell(row=r_rate, column=LABEL_COL).border = _NO_BORDER
 
-        cell = ws.cell(row=r_rate, column=PROJ_COL, value="환율")
+        cell = ws.cell(row=r_rate, column=PROJ_COL, value=" Exchange rate")
         cell.fill      = _fill(C_WHITE)
         cell.border    = _NO_BORDER
         cell.font      = Font(color="555555", bold=True, size=9, name="맑은 고딕")
@@ -416,13 +417,21 @@ def write_project_sheet(
     data_fill = _fill(C_WHITE)
     tot_fill  = _fill(C_TOTAL)   # toal 행 공통 배경 (#C5E0B3)
 
-    # 프로젝트명 번호 순 정렬 (coupang-01 → coupang-02 ...), 번호 없는 프로젝트(Butter 등)는 맨 뒤
-    def _proj_sort_key(p):
-        name = p["proj_name"]
-        m = re.search(r"-(\d+)", name)
-        return (0, name) if m else (1, name)
-
-    proj_results = sorted(proj_results, key=_proj_sort_key)
+    # 프로젝트 정렬: project_order_names 가 주어지면 그 순서를 그대로 따른다
+    # (per_project 모드에서 사용자가 드래그로 지정한 순서). 미지정 시 기존
+    # 동작 — 이름의 -숫자 패턴 우선, 없는 항목은 맨 뒤 알파벳순.
+    if project_order_names:
+        _name_to_idx = {nm: i for i, nm in enumerate(project_order_names)}
+        proj_results = sorted(
+            proj_results,
+            key=lambda p: _name_to_idx.get(p.get("proj_name"), 1_000_000),
+        )
+    else:
+        def _proj_sort_key(p):
+            name = p["proj_name"]
+            m = re.search(r"-(\d+)", name)
+            return (0, name) if m else (1, name)
+        proj_results = sorted(proj_results, key=_proj_sort_key)
 
     def _quote_sheet(name: str) -> str:
         # Excel 수식 시트 참조: 시트명에 ' 가 있으면 '' 로 이스케이프 후 홑따옴표로 감쌈.
@@ -658,7 +667,9 @@ def write_project_sheet(
                            end_row=r_usd,   end_column=PROJ_COL + 2)
         except Exception:
             pass
-        _tot_label = "toal(\u20a9)" if is_krw else "toal($)"
+        # USD \ubaa8\ub4dc: \ud5895 \ub294 \uc0ac\uc6a9\uae08\uc561(\ub2ec\ub7ec), \ud5896 \uac00 \uccad\uad6c\uae08\uc561(\uc6d0\ud654).
+        # KRW \ubaa8\ub4dc: \ud5895 \ud55c \uc904\uc774 \uccad\uad6c\uae08\uc561(\uc6d0\ud654).
+        _tot_label = "\uccad\uad6c\uae08\uc561 : toal(\u20a9)" if is_krw else "\uc0ac\uc6a9\uae08\uc561 : toal($)"
         cell = ws.cell(row=r_usd, column=PROJ_COL, value=_tot_label)
         cell.fill      = tot_fill
         cell.font      = _font(C_TEXT, bold=True, size=8)
@@ -701,7 +712,7 @@ def write_project_sheet(
                                end_row=r_krw,   end_column=PROJ_COL + 2)
             except Exception:
                 pass
-            cell = ws.cell(row=r_krw, column=PROJ_COL, value="toal(\u20a9)")
+            cell = ws.cell(row=r_krw, column=PROJ_COL, value="\uccad\uad6c\uae08\uc561 : toal(\u20a9)")
             cell.fill      = tot_fill
             cell.font      = _font(C_TEXT, bold=True, size=8)
             cell.alignment = _align("right", "center")
@@ -817,7 +828,7 @@ def write_project_sheet(
                        end_row=r_total,   end_column=PROJ_COL + 2)
     except Exception:
         pass
-    cell = ws.cell(row=r_total, column=PROJ_COL, value="청구 대상 금액")
+    cell = ws.cell(row=r_total, column=PROJ_COL, value="청구금액 총계(KRW)")
     cell.fill      = tot_fill
     cell.font      = Font(color=C_TEXT, bold=True, size=10, name="맑은 고딕")
     cell.alignment = _align("center", "center")

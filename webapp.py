@@ -7,10 +7,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+
+# Windows 콘솔 기본 cp949 환경에서 print(이모지/특수문자) 호출이
+# UnicodeEncodeError 를 던지지 않도록 stdout/stderr 을 utf-8 로 재설정.
+# Streamlit 백엔드 로그가 콘솔로 흐를 때만 영향 — 앱 UI 와 무관.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
 
 import pandas as pd
 import streamlit as st
@@ -44,9 +54,12 @@ SAVED_HIDDEN_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_hidden_s
 SAVED_MANUAL_SKUS_FILE     = Path(__file__).parent / "billing" / "saved_manual_skus.json"
 SAVED_BATCH_SELECTION_FILE = Path(__file__).parent / "billing" / "saved_batch_selection.json"
 SAVED_COMPANY_NOTES_FILE   = Path(__file__).parent / "billing" / "saved_company_notes.json"
-# 일괄 정산 zip 파일명 카운터. 같은 정산월(YYYY-MM) 에 대해 몇 번째 다운로드인지
-# 기록. 첫 번째는 "YYYY-MM.zip", 두 번째부터 "YYYY-MM (1).zip", "(2).zip" ...
-SAVED_DL_COUNTER_FILE      = Path(__file__).parent / "billing" / "saved_dl_counter.json"
+# per_project 모드 전용 데이터 (계정→프로젝트별 분리). account 모드 파일들과
+# 병렬로 존재. account 모드 회사는 이 파일들을 건드리지 않는다.
+SAVED_ORDERS_PP_FILE         = Path(__file__).parent / "billing" / "saved_orders_per_project.json"
+SAVED_MANUAL_SKUS_PP_FILE    = Path(__file__).parent / "billing" / "saved_manual_skus_per_project.json"
+SAVED_HIDDEN_SKUS_PP_FILE    = Path(__file__).parent / "billing" / "saved_hidden_skus_per_project.json"
+SAVED_PROJECT_ORDERS_FILE    = Path(__file__).parent / "billing" / "saved_project_orders.json"
 
 # 일괄 정산 "⭐ 즐겨찾기" 버튼 클릭 시 체크되는 회사 명단 (임시 하드코딩).
 # 검색 무관 전체 적용. 1인 사용 환경 가정으로 별도 JSON 저장 없이 코드에 박음.
@@ -344,6 +357,162 @@ def _save_manual_skus_for_account(account: str, skus: list[str]) -> None:
     )
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# per_project 모드 전용 저장/로드 — {account: {project_id: [...]}} 구조.
+# account 모드 회사는 이 함수들에 닿지 않으며 saved_*.json 도 그대로 유지된다.
+# 프로젝트별 데이터가 없을 때는 호출부에서 account 단위 데이터를 seed 로 사용.
+# ══════════════════════════════════════════════════════════════════════════
+def _load_pp_map(path: Path) -> dict[str, dict[str, list[str]]]:
+    """공용 로더 — {account: {project_id: [str, ...]}} 정규화."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, dict[str, list[str]]] = {}
+    for acc, proj_map in (data or {}).items():
+        if not isinstance(acc, str) or not isinstance(proj_map, dict):
+            continue
+        cleaned: dict[str, list[str]] = {}
+        for pid, lst in proj_map.items():
+            if not isinstance(pid, str) or not isinstance(lst, list):
+                continue
+            cleaned[pid] = [str(x) for x in lst if isinstance(x, str) and x.strip()]
+        out[acc] = cleaned
+    return out
+
+
+def _save_pp_entry(path: Path, account: str, project_id: str, items: list[str]) -> None:
+    data = _load_pp_map(path)
+    data.setdefault(account, {})[project_id] = [
+        str(s) for s in items if isinstance(s, str) and s.strip()
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _load_pp_orders() -> dict[str, dict[str, list[str]]]:
+    return _load_pp_map(SAVED_ORDERS_PP_FILE)
+
+
+def _save_pp_order_for_project(account: str, project_id: str, order: list[str]) -> None:
+    _save_pp_entry(SAVED_ORDERS_PP_FILE, account, project_id, order)
+
+
+def _load_pp_manual_skus() -> dict[str, dict[str, list[str]]]:
+    return _load_pp_map(SAVED_MANUAL_SKUS_PP_FILE)
+
+
+def _save_pp_manual_for_project(account: str, project_id: str, skus: list[str]) -> None:
+    _save_pp_entry(SAVED_MANUAL_SKUS_PP_FILE, account, project_id, skus)
+
+
+def _load_pp_hidden_skus() -> dict[str, dict[str, list[str]]]:
+    return _load_pp_map(SAVED_HIDDEN_SKUS_PP_FILE)
+
+
+def _save_pp_hidden_for_project(account: str, project_id: str, skus: list[str]) -> None:
+    _save_pp_entry(SAVED_HIDDEN_SKUS_PP_FILE, account, project_id, skus)
+
+
+# ── 프로젝트 순서 (per_project 모드 전용) ─────────────────────────────────
+# {account: {"order": [project_id, ...], "labels": {project_id: name}}}
+#   order  : 사용자가 드래그로 지정한 프로젝트 정렬 순서 (project_id 기반)
+#   labels : 표시용 project_name (이름 변경 추적). id 가 바뀌면 새 키.
+def _load_project_orders() -> dict[str, dict]:
+    if not SAVED_PROJECT_ORDERS_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SAVED_PROJECT_ORDERS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, dict] = {}
+    for acc, entry in (data or {}).items():
+        if not isinstance(acc, str) or not isinstance(entry, dict):
+            continue
+        _order = entry.get("order")
+        _labels = entry.get("labels")
+        out[acc] = {
+            "order":  [str(x) for x in _order if isinstance(x, str)] if isinstance(_order, list) else [],
+            "labels": {str(k): str(v) for k, v in _labels.items()} if isinstance(_labels, dict) else {},
+        }
+    return out
+
+
+def _save_project_order_for_account(
+    account: str, order: list[str], labels: dict[str, str] | None = None
+) -> None:
+    data = _load_project_orders()
+    entry = data.get(account) or {"order": [], "labels": {}}
+    entry["order"] = [str(p) for p in order if isinstance(p, str)]
+    if labels:
+        # 기존 라벨에 새 라벨을 merge — 사용자가 이름을 바꿔도 흔적 유지.
+        merged = dict(entry.get("labels") or {})
+        merged.update({str(k): str(v) for k, v in labels.items()})
+        entry["labels"] = merged
+    data[account] = entry
+    SAVED_PROJECT_ORDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SAVED_PROJECT_ORDERS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _build_pp_excel_maps(
+    account: str, project_ids: list[str], account_fallback_order: list[str] | None = None
+) -> tuple[dict[str, list[str]], dict[str, set[str]], dict[str, list[str]]]:
+    """per_project 모드 정산 시점 — 프로젝트별 (sku_order / hidden / manual) 맵 생성.
+
+    각 프로젝트 데이터가 비어 있으면 account 단위 fallback 으로 seed.
+    엑셀 출력부에서 프로젝트별 Invoice 시트에 적용된다.
+    """
+    pp_orders  = _load_pp_orders().get(account) or {}
+    pp_hidden  = _load_pp_hidden_skus().get(account) or {}
+    pp_manual  = _load_pp_manual_skus().get(account) or {}
+    acc_order  = list(account_fallback_order or _lookup_account(_load_saved_orders(), account) or [])
+    acc_hidden = list(_lookup_account(_load_hidden_skus_map(), account) or [])
+    acc_manual = list(_lookup_account(_load_manual_skus_map(), account) or [])
+
+    order_map:  dict[str, list[str]] = {}
+    hidden_map: dict[str, set[str]]  = {}
+    manual_map: dict[str, list[str]] = {}
+    for _pid in project_ids:
+        order_map[_pid]  = list(pp_orders.get(_pid)  or acc_order)
+        hidden_map[_pid] = set(pp_hidden.get(_pid)   or acc_hidden)
+        manual_map[_pid] = list(pp_manual.get(_pid)  or acc_manual)
+    return order_map, hidden_map, manual_map
+
+
+def _resolve_project_order(
+    account: str, discovered: list[tuple[str, str]]
+) -> tuple[list[str], dict[str, str]]:
+    """저장된 순서 + 신규 발견 프로젝트(맨 끝)를 합쳐 최종 순서 반환.
+
+    discovered: [(project_id, project_name), ...] — CSV 에서 추출한 현재
+        정산 대상 프로젝트 목록.
+    반환: (ordered_project_ids, labels_for_display).
+        ordered_project_ids — saved order ∩ discovered → 그대로 + 신규는 끝에 append.
+        labels — 우선순위: discovered 의 최신 name > saved labels.
+    """
+    saved = _load_project_orders().get(account) or {"order": [], "labels": {}}
+    saved_order: list[str] = saved.get("order") or []
+    saved_labels: dict[str, str] = dict(saved.get("labels") or {})
+
+    discovered_ids = {pid for pid, _ in discovered}
+    discovered_labels = {pid: name for pid, name in discovered if name}
+
+    ordered = [pid for pid in saved_order if pid in discovered_ids]
+    seen = set(ordered)
+    for pid, _name in discovered:
+        if pid not in seen:
+            ordered.append(pid)
+            seen.add(pid)
+
+    labels = {**saved_labels, **discovered_labels}
+    # discovered 에 없는 saved id 의 라벨은 유지 — 다음 회차에 다시 등장하면 사용.
+    return ordered, labels
+
+
 # ── 일괄 정산 선택 상태 저장/로드 ──────────────────────────────────────────
 # 일괄 정산 UI 에서 사용자가 체크한 회사 목록을 다음 방문 시에도 복원하고,
 # 이전에 한 번이라도 화면에 노출되었던 회사 집합(known)과 비교해 "🆕 신규"
@@ -599,39 +768,6 @@ def _save_batch_selection(data: dict) -> None:
     )
 
 
-# ── zip 다운로드 파일명 규칙 ───────────────────────────────────────────────
-# 같은 정산월(YYYY-MM) 에 대해 1회: "2026-04.zip", 2회: "2026-04(1).zip",
-# 3회: "2026-04(2).zip" … 카운터는 JSON 으로 영구 저장 (streamlit rerun /
-# 프로세스 재시작에도 유지). 다른 월은 독립 카운터.
-def _next_batch_zip_filename(billing_month: str | None) -> str:
-    _month = billing_month or "all"
-    # 카운터 로드
-    counter: dict[str, int] = {}
-    if SAVED_DL_COUNTER_FILE.exists():
-        try:
-            counter = json.loads(SAVED_DL_COUNTER_FILE.read_text(encoding="utf-8")) or {}
-            if not isinstance(counter, dict):
-                counter = {}
-        except Exception:
-            counter = {}
-    n = int(counter.get(_month, 0) or 0)
-    # 파일명 결정 — n=0 일 때는 suffix 없음. 공백 없이 "YYYY-MM(N).zip".
-    if n == 0:
-        fname = f"{_month}.zip"
-    else:
-        fname = f"{_month}({n}).zip"
-    # 카운터 +1 저장
-    counter[_month] = n + 1
-    try:
-        SAVED_DL_COUNTER_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SAVED_DL_COUNTER_FILE.write_text(
-            json.dumps(counter, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception:
-        pass
-    return fname
-
-
 # ── 일괄 정산: 단일 회사 정산 함수 ─────────────────────────────────────────
 # 단일 모드(webapp 의 정산 실행 블록) 와 **동일한 함수 체인** 으로 정산하므로
 # 같은 입력(회사/CSV/단가표/회사별 저장값) 에 대해 같은 결과를 반환한다.
@@ -660,7 +796,6 @@ def _run_batch_single_billing(
     billable_skus: set | None,
     dl_xlsx: bool,
     dl_pdf: bool,
-    pdf_converter=None,
 ) -> dict:
     """한 회사 정산 → result dict.
     반환 키: ok, error, excel_bytes, pdf_bytes, pdf_error, paid_in_hidden,
@@ -767,6 +902,7 @@ def _run_batch_single_billing(
                     free_cap_override=_proj_sku_free_cap.get(_pid),
                 )
                 _per_proj_invoices.append({
+                    "proj_id":    _pid,
                     "proj_name":  _proj_name_map[_pid],
                     "line_items": _items,
                 })
@@ -790,60 +926,123 @@ def _run_batch_single_billing(
         print(f"{_tag} 3b) calculate_billing_by_project: {_t_calc_proj:.3f}초")
         _timings["calc"] = _t_calc + _t_calc_proj
 
+        # ── 3-2) per_project 모드: 프로젝트 순서/per-project 데이터 맵 구성 ─
+        # 각 Invoice 시트가 자기 프로젝트의 sku_order / hidden / manual 을
+        # 사용하도록 webapp 단에서 미리 정렬·매핑한 뒤 invoice_generator 로 전달.
+        _pp_sku_order_map: dict[str, list[str]] = {}
+        _pp_hidden_map:    dict[str, set[str]]  = {}
+        _pp_manual_map:    dict[str, list[str]] = {}
+        _pp_proj_name_order: list[str] | None = None
+        if billing_mode == "per_project" and _per_proj_invoices:
+            _pp_pids_in_excel = [
+                _e.get("proj_id") for _e in _per_proj_invoices if _e.get("proj_id")
+            ]
+            # saved_project_orders.json 기준 사용자 지정 순서로 재배열.
+            _saved_pp_order = (
+                _load_project_orders().get(selected_company) or {"order": []}
+            ).get("order") or []
+            _saved_set = set(_saved_pp_order)
+            _ordered_pids = [p for p in _saved_pp_order if p in _pp_pids_in_excel]
+            _ordered_pids += [p for p in _pp_pids_in_excel if p not in _saved_set]
+            if _ordered_pids:
+                _idx_of = {pid: i for i, pid in enumerate(_ordered_pids)}
+                _per_proj_invoices.sort(
+                    key=lambda _e: _idx_of.get(_e.get("proj_id"), 1_000_000)
+                )
+                _name_idx_of = {
+                    str(_e.get("proj_name") or ""): _i
+                    for _i, _e in enumerate(_per_proj_invoices)
+                }
+                proj_results = sorted(
+                    proj_results or [],
+                    key=lambda _pr: _name_idx_of.get(
+                        str(_pr.get("proj_name") or ""), 1_000_000
+                    ),
+                )
+                _pp_proj_name_order = [
+                    str(_e.get("proj_name") or "") for _e in _per_proj_invoices
+                ]
+            _pp_sku_order_map, _pp_hidden_map, _pp_manual_map = _build_pp_excel_maps(
+                selected_company, _ordered_pids, account_fallback_order=sku_order,
+            )
+
         # ── 4) manual_skus stub 주입 ─────────────────────────────
         _manual_keep_set: set[str] = set()
+        def _make_stub(_nm: str):
+            return _BLI(
+                billing_month   = billing_month or "",
+                project_id      = "",
+                project_name    = "",
+                sku_id          = "",
+                sku_name        = _nm,
+                total_usage     = 0,
+                free_usage_cap  = 0,
+                free_cap_applied= 0,
+                billable_usage  = 0,
+                tier_breakdown  = [],
+                subtotal_usd    = _Decimal("0"),
+                exchange_rate   = _ex,
+                margin_rate     = _mr,
+                final_krw       = _Decimal("0"),
+            )
         if manual_skus:
-            def _make_stub(_nm: str):
-                return _BLI(
-                    billing_month   = billing_month or "",
-                    project_id      = "",
-                    project_name    = "",
-                    sku_id          = "",
-                    sku_name        = _nm,
-                    total_usage     = 0,
-                    free_usage_cap  = 0,
-                    free_cap_applied= 0,
-                    billable_usage  = 0,
-                    tier_breakdown  = [],
-                    subtotal_usd    = _Decimal("0"),
-                    exchange_rate   = _ex,
-                    margin_rate     = _mr,
-                    final_krw       = _Decimal("0"),
-                )
             _existing_names = {getattr(_it, "sku_name", "") for _it in line_items}
             _missing_manual = [m for m in manual_skus if m and m not in _existing_names]
             for _nm in _missing_manual:
                 line_items.append(_make_stub(_nm))
             _manual_keep_set |= set(manual_skus)
-            if _per_proj_invoices:
-                for _entry in _per_proj_invoices:
-                    _proj_items = _entry.get("line_items") or []
-                    _proj_names = {getattr(_it, "sku_name", "") for _it in _proj_items}
-                    for _nm in manual_skus:
-                        if _nm and _nm not in _proj_names:
-                            _proj_items.append(_make_stub(_nm))
-                    _entry["line_items"] = _proj_items
+        # per_project 모드: 각 프로젝트 entry 에 그 프로젝트의 manual stub 주입.
+        # account 모드: 기존대로 manual_skus(account 단위) 를 모든 entry 에 주입.
+        if _per_proj_invoices:
+            for _entry in _per_proj_invoices:
+                _proj_items = _entry.get("line_items") or []
+                _proj_names = {getattr(_it, "sku_name", "") for _it in _proj_items}
+                if billing_mode == "per_project":
+                    _manuals_for_this = _pp_manual_map.get(_entry.get("proj_id"), [])
+                else:
+                    _manuals_for_this = manual_skus or []
+                for _nm in _manuals_for_this:
+                    if _nm and _nm not in _proj_names:
+                        _proj_items.append(_make_stub(_nm))
+                _entry["line_items"] = _proj_items
+                _manual_keep_set |= set(_manuals_for_this)
 
         # ── 5) hidden 안 비용발생 SKU 검출 ───────────────────────
-        _hidden_set = set(hidden_skus or [])
+        # account 모드: 전역 hidden_skus. per_project 모드: 모든 프로젝트 hidden 의 합집합
+        # (UI 의 "비용발생" 경고용 — 어느 프로젝트든 비용발생 hidden 있으면 알림).
+        if billing_mode == "per_project" and _pp_hidden_map:
+            _hidden_union: set[str] = set()
+            for _hs in _pp_hidden_map.values():
+                _hidden_union |= _hs
+            _hidden_set_for_warn = _hidden_union
+        else:
+            _hidden_set_for_warn = set(hidden_skus or [])
         _paid_in_hidden = [
             (getattr(_it, "sku_name", ""), int(getattr(_it, "final_krw", 0) or 0))
             for _it in line_items
-            if getattr(_it, "sku_name", "") in _hidden_set
+            if getattr(_it, "sku_name", "") in _hidden_set_for_warn
             and int(getattr(_it, "final_krw", 0) or 0) > 0
         ]
 
         # ── 6) hidden 필터 (출력용 사본) ─────────────────────────
-        if _hidden_set:
-            _line_items_out = [
-                _it for _it in line_items
-                if getattr(_it, "sku_name", "") not in _hidden_set
-            ]
+        # account 모드: 단일 hidden 집합으로 일괄 필터.
+        # per_project 모드: 각 entry 가 자기 프로젝트의 hidden 으로 필터.
+        if billing_mode == "per_project" and _pp_hidden_map:
+            # 프로젝트별 필터 + 프로젝트별 proj_results 필터.
+            _line_items_out = list(line_items)  # account-wide line_items 는 PP 모드에서
+            #                                     Invoice 시트로 출력되지 않으므로 원본 유지.
             _proj_results_out = []
             for _pr in (proj_results or []):
+                _pr_name = str(_pr.get("proj_name") or "")
+                _pid_of = next(
+                    (_e.get("proj_id") for _e in (_per_proj_invoices or [])
+                     if str(_e.get("proj_name") or "") == _pr_name),
+                    None,
+                )
+                _hs = _pp_hidden_map.get(_pid_of or "", set())
                 _skus_f = {
                     _nm: _v for _nm, _v in (_pr.get("skus") or {}).items()
-                    if _nm not in _hidden_set
+                    if _nm not in _hs
                 }
                 if not _skus_f:
                     continue
@@ -856,26 +1055,63 @@ def _run_batch_single_billing(
                     (_v.get("final_krw") or 0) for _v in _skus_f.values()
                 )
                 _proj_results_out.append(_new_pr)
-            _per_proj_invoices_out = None
-            if _per_proj_invoices is not None:
-                _per_proj_invoices_out = []
-                for _entry in _per_proj_invoices:
-                    _items_f = [
-                        _it for _it in (_entry.get("line_items") or [])
-                        if getattr(_it, "sku_name", "") not in _hidden_set
-                    ]
-                    _per_proj_invoices_out.append({
-                        "proj_name":  _entry.get("proj_name"),
-                        "line_items": _items_f,
-                    })
+            _per_proj_invoices_out = []
+            for _entry in (_per_proj_invoices or []):
+                _hs = _pp_hidden_map.get(_entry.get("proj_id") or "", set())
+                _items_f = [
+                    _it for _it in (_entry.get("line_items") or [])
+                    if getattr(_it, "sku_name", "") not in _hs
+                ]
+                _per_proj_invoices_out.append({
+                    "proj_id":    _entry.get("proj_id"),
+                    "proj_name":  _entry.get("proj_name"),
+                    "line_items": _items_f,
+                })
+            _sku_order_out = sku_order or None  # PP 모드 fallback (entry 별 order 우선).
         else:
-            _line_items_out        = line_items
-            _proj_results_out      = proj_results
-            _per_proj_invoices_out = _per_proj_invoices
-
-        _sku_order_out = [
-            _n for _n in (sku_order or []) if _n not in _hidden_set
-        ]
+            _hidden_set = set(hidden_skus or [])
+            if _hidden_set:
+                _line_items_out = [
+                    _it for _it in line_items
+                    if getattr(_it, "sku_name", "") not in _hidden_set
+                ]
+                _proj_results_out = []
+                for _pr in (proj_results or []):
+                    _skus_f = {
+                        _nm: _v for _nm, _v in (_pr.get("skus") or {}).items()
+                        if _nm not in _hidden_set
+                    }
+                    if not _skus_f:
+                        continue
+                    _new_pr = dict(_pr)
+                    _new_pr["skus"] = _skus_f
+                    _new_pr["total_usd"] = sum(
+                        (_v.get("subtotal_usd") or 0) for _v in _skus_f.values()
+                    )
+                    _new_pr["total_krw"] = sum(
+                        (_v.get("final_krw") or 0) for _v in _skus_f.values()
+                    )
+                    _proj_results_out.append(_new_pr)
+                _per_proj_invoices_out = None
+                if _per_proj_invoices is not None:
+                    _per_proj_invoices_out = []
+                    for _entry in _per_proj_invoices:
+                        _items_f = [
+                            _it for _it in (_entry.get("line_items") or [])
+                            if getattr(_it, "sku_name", "") not in _hidden_set
+                        ]
+                        _per_proj_invoices_out.append({
+                            "proj_id":    _entry.get("proj_id"),
+                            "proj_name":  _entry.get("proj_name"),
+                            "line_items": _items_f,
+                        })
+            else:
+                _line_items_out        = line_items
+                _proj_results_out      = proj_results
+                _per_proj_invoices_out = _per_proj_invoices
+            _sku_order_out = [
+                _n for _n in (sku_order or []) if _n not in _hidden_set
+            ]
 
         # ── 7) Excel 생성 ────────────────────────────────────────
         _excel_bytes = None
@@ -903,6 +1139,8 @@ def _run_batch_single_billing(
                 include_project_sheet= include_project_sheet,
                 subtotal_round       = subtotal_round,
                 force_keep_skus      = _manual_keep_set or None,
+                sku_order_per_project= _pp_sku_order_map or None,
+                project_order_names  = _pp_proj_name_order,
             )
             _t_excel = _t_perf.time() - _t0
             print(f"{_tag} 7) generate_formatted_invoice: {_t_excel:.3f}초 (bytes={len(_excel_bytes) if _excel_bytes else 0})")
@@ -914,15 +1152,26 @@ def _run_batch_single_billing(
         _val_warns: list[str] = []
         if _excel_bytes:
             try:
+                # PP 모드에서는 _line_items_out 이 account 단위 원본이고 hidden
+                # 필터가 프로젝트별로 _per_proj_invoices_out 에 적용된 상태라
+                # validator 에 그대로 넘기면 hidden 처리된 SKU 가 누락으로 잘못
+                # 잡힌다 (false positive). 실제 엑셀에 들어간 SKU 의 합집합으로 검증.
+                if billing_mode == "per_project" and _per_proj_invoices_out:
+                    _val_items = [
+                        _it for _e in _per_proj_invoices_out
+                        for _it in (_e.get("line_items") or [])
+                    ]
+                else:
+                    _val_items = _line_items_out
                 _val_warns = validate_invoice_excel(
                     _excel_bytes,
-                    line_items=_line_items_out,
+                    line_items=_val_items,
                     company_name=selected_company or "전체",
                 )
             except Exception as _ve:
                 _val_warns = [f"검사 함수 자체 오류: {type(_ve).__name__}: {_ve}"]
             if _val_warns:
-                print(f"{_tag} ⚠ 정합성 경고 {len(_val_warns)}건:")
+                print(f"{_tag} [경고] 정합성 {len(_val_warns)}건:")
                 for _w in _val_warns[:3]:
                     print(f"   - {_w}")
 
@@ -931,24 +1180,12 @@ def _run_batch_single_billing(
         _pdf_error = None
         if dl_pdf and _excel_bytes:
             _t0 = _t_perf.time()
-            if billing_mode == "per_project" and _per_proj_invoices_out:
-                from invoice_generator import _safe_sheet_title
-                _pdf_sheet = _safe_sheet_title(
-                    _per_proj_invoices_out[0]["proj_name"], used=[]
-                )
-            else:
-                _pdf_sheet = "Invoice"
-            # pdf_converter 가 주어지면 (일괄 정산) 살아있는 Excel 인스턴스 재사용,
-            # 아니면 단일 호출 (회사당 Excel 새로 띄움).
-            if pdf_converter is not None:
-                _pdf_bytes, _pdf_error = pdf_converter.convert(_excel_bytes, _pdf_sheet)
-                _pdf_via = "BatchExcelPdf"
-            else:
-                from pdf_export import xlsx_sheet_to_pdf
-                _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(_excel_bytes, _pdf_sheet)
-                _pdf_via = "single"
+            from pdf_export import xlsx_sheet_to_pdf
+            # per_project 모드도 단일 "Invoice" 시트(블록 스택)로 통일.
+            _pdf_sheet = "Invoice"
+            _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(_excel_bytes, _pdf_sheet)
             _t_pdf = _t_perf.time() - _t0
-            print(f"{_tag} 8) PDF 변환 [{_pdf_via}]: {_t_pdf:.3f}초 (bytes={len(_pdf_bytes) if _pdf_bytes else 0})")
+            print(f"{_tag} 8) xlsx_sheet_to_pdf: {_t_pdf:.3f}초 (bytes={len(_pdf_bytes) if _pdf_bytes else 0})")
             _timings["pdf"] = _t_pdf
 
         _t_total = _t_perf.time() - _t_start
@@ -976,6 +1213,111 @@ def _run_batch_single_billing(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+def _render_batch_summary(cache: dict) -> None:
+    """일괄 정산 결과 요약 + zip 다운로드 버튼. session_state 캐시에서 호출되어,
+    다운로드 클릭으로 rerun 되어도 화면이 사라지지 않게 한다.
+
+    `_batch_auto_dl_pending` 플래그가 True 면 첫 렌더 후 JS 로 다운로드 버튼을
+    1회 자동 클릭 (사용자가 직접 누르지 않아도 즉시 파일이 받아짐).
+    """
+    results       = cache.get("results")        or []
+    log_lines     = cache.get("log_lines")      or []
+    timings_lines = cache.get("timings_lines")  or []
+    n_ok    = cache.get("n_ok", 0)
+    n_paid  = cache.get("n_paid", 0)
+    n_skip  = cache.get("n_skip", 0)
+    n_err   = cache.get("n_err", 0)
+    n_total = cache.get("n_total", 0)
+    zip_bytes = cache.get("zip_bytes") or b""
+    zip_name  = cache.get("zip_name")  or "전체정산.zip"
+
+    st.markdown("---")
+    st.markdown(f"### 결과 요약 ({n_ok}/{n_total} 성공)")
+    if n_paid > 0:
+        st.warning(
+            f"⚠️ 비용발생 SKU 가 포함된 회사 **{n_paid}개** — 엑셀 총액이 실제 "
+            "청구액보다 적게 표시되었을 수 있습니다."
+        )
+    if n_err > 0:
+        st.error(f"❌ 정산 실패 {n_err}개사 — 아래 로그 확인")
+    if n_skip > 0:
+        st.info(f"⏭ 건너뛴 회사 {n_skip}개사 (정책=건너뛰기)")
+
+    _val_alerts = [r for r in results if r.get("validation_warnings")]
+    if _val_alerts:
+        st.error(
+            f"🚨 **엑셀 정합성 경고가 발생한 회사 {len(_val_alerts)}개** — "
+            "외부 발송 전 반드시 확인하세요."
+        )
+        with st.expander("🚨 정합성 경고 상세", expanded=True):
+            for r in _val_alerts:
+                st.markdown(f"**{r['company']}**")
+                for _w in r["validation_warnings"][:10]:
+                    st.markdown(f"- {_w}")
+                _rem = len(r["validation_warnings"]) - 10
+                if _rem > 0:
+                    st.markdown(f"- … 외 {_rem}건")
+
+    with st.expander("📋 회사별 정산 로그", expanded=False):
+        for ln in log_lines:
+            st.markdown(ln)
+        _has_paid = [r for r in results if r.get("paid_in_hidden")]
+        if _has_paid:
+            st.markdown("---")
+            st.markdown("**[비용발생] 상세:**")
+            for r in _has_paid:
+                _items = ", ".join(
+                    f"{nm}(₩{kw:,})" for nm, kw in r["paid_in_hidden"]
+                )
+                st.markdown(f"- {r['company']}: {_items}")
+
+    if timings_lines:
+        with st.expander("⏱ 단계별 소요시간 (디버그)", expanded=False):
+            st.markdown("  \n".join(timings_lines))
+
+    if n_ok > 0 and zip_bytes:
+        # 다운로드 버튼 — 정산 후 첫 렌더에 한해 JS 로 자동 클릭.
+        st.download_button(
+            f"📦 zip 다운로드 ({zip_name})",
+            data=zip_bytes,
+            file_name=zip_name,
+            mime="application/zip",
+            type="primary",
+            use_container_width=True,
+            key="_batch_zip_dl_btn",
+        )
+        # auto_dl_pending 플래그가 켜져 있으면 1회 자동 클릭 후 끈다.
+        if st.session_state.pop("_batch_auto_dl_pending", False):
+            st.html(
+                """
+                <script>
+                (function(){
+                  if (window.__sphBatchAutoDl) return;
+                  function tryClick(n){
+                    const doc = window.parent ? window.parent.document : document;
+                    const btns = doc.querySelectorAll(
+                        '[data-testid="stDownloadButton"] button'
+                    );
+                    for (const b of btns){
+                      const t = (b.innerText || "").trim();
+                      if (t.includes("zip 다운로드")){
+                        window.__sphBatchAutoDl = true;
+                        b.click();
+                        return;
+                      }
+                    }
+                    if (n < 40) setTimeout(()=>tryClick(n+1), 150);
+                  }
+                  setTimeout(()=>tryClick(0), 200);
+                })();
+                </script>
+                """,
+                unsafe_allow_javascript=True,
+            )
+    else:
+        st.info("다운로드할 결과가 없습니다.")
+
+
 # 일괄 정산 UI — 회사 리스트 체크 + 일괄 환율/날짜 입력 + 전체 정산 → zip
 # ══════════════════════════════════════════════════════════════════════════════
 def render_batch_billing_ui(
@@ -1290,7 +1632,9 @@ def render_batch_billing_ui(
             _dict_hash(_min_charges_all),
             _dict_hash(_hidden_all),
             _dict_hash(_manual_all),
-            _dict_hash(_notes_all),
+            # _notes_all 은 cache_version 에서 제외 — 비고 편집 시 data_editor
+            # 가 재마운트되어 옆 셀 입력 중인 텍스트가 사라지는 사고를 피한다.
+            # 비고 표시는 session_state 와 _edited_rows 로 보존된다.
             _dict_hash(_rate_all),
             _dict_hash(_orders_all),
         )
@@ -1469,8 +1813,10 @@ def render_batch_billing_ui(
                 _note_v = str(_changes_dict["비고"] or "").strip()
                 st.session_state[f"_batch_note_{_nc}"] = _note_v
                 _save_company_note_for_account(_orig_company, _note_v)
-                # DataFrame 캐시 무효화 → 다음 rerun 시 재빌드해서 "None" 잔재 제거.
-                st.session_state.pop(_DF_VER_KEY, None)
+                # ⚠ DataFrame 캐시 무효화하지 않는다 — 무효화하면 다음 rerun
+                # 에 data_editor 가 재마운트되면서 사용자가 바로 옆 셀에 입력
+                # 중이던 in-progress 텍스트가 폐기되는 사고가 있음.
+                # "None" 잔재 우려는 DF 빌드 시점의 fillna() 로 이미 처리됨.
 
         # 편집된 회사별 환율 표기(은행/문구) 영구 저장 — 다음 접속 시 복원.
         # 환율 값/기준일은 일괄 입력값을 우선시하므로 saved_rate_label 에는
@@ -1478,13 +1824,21 @@ def render_batch_billing_ui(
         if _rate_label_dirty:
             for _c in _rate_label_dirty:
                 _nc_c = _norm_account_key(_c)
-                _bank_c = st.session_state.get(
-                    f"_batch_bank_{_nc_c}", DEFAULT_BANK_NAME,
-                ) or DEFAULT_BANK_NAME
-                _phr_c = st.session_state.get(
-                    f"_batch_phrase_{_nc_c}", DEFAULT_RATE_PHRASE,
-                ) or DEFAULT_RATE_PHRASE
                 _existing = _load_rate_labels().get(_c) or {}
+                # session_state 우선, 없으면 디스크 기존값, 마지막에 DEFAULT.
+                # ⚠ 이전: session_state 가 비어 있으면 곧장 DEFAULT 로 폴백해서,
+                # 사용자가 은행만 수정하고 환율종류는 안 건드린 회사도 phrase
+                # 가 default 로 덮어써지는 사고. _existing 로 한 번 더 폴백.
+                _bank_c = (
+                    st.session_state.get(f"_batch_bank_{_nc_c}")
+                    or _existing.get("bank")
+                    or DEFAULT_BANK_NAME
+                )
+                _phr_c = (
+                    st.session_state.get(f"_batch_phrase_{_nc_c}")
+                    or _existing.get("phrase")
+                    or DEFAULT_RATE_PHRASE
+                )
                 _save_rate_label_for_account(
                     _c,
                     bank=_bank_c, phrase=_phr_c,
@@ -1579,6 +1933,11 @@ def render_batch_billing_ui(
     })
 
     if not _start:
+        # "정산 시작" 클릭이 아닌 일반 rerun (예: 다운로드 버튼 클릭으로 인한
+        # rerun) — 직전에 컴퓨테이션한 결과 요약이 있다면 그대로 다시 그린다.
+        _cache = st.session_state.get("_batch_summary_cache")
+        if _cache and _cache.get("billing_month") == billing_month:
+            _render_batch_summary(_cache)
         return
     if not _checked:
         st.info("정산할 회사를 1개 이상 체크해 주세요.")
@@ -1586,6 +1945,9 @@ def render_batch_billing_ui(
     if price_list_file is None:
         st.error("Price List(xlsx) 가 없습니다. 사이드바에서 업로드해 주세요.")
         return
+    # 새 정산을 시작하면 이전 캐시 무효화 (computation 후 새로 채워짐).
+    st.session_state.pop("_batch_summary_cache", None)
+    st.session_state.pop("_batch_auto_dl_pending", None)
 
     # 정산 중 화면 dim + 가운데 진행 카드. 오해/오클릭 차단.
     overlay_ph = st.empty()
@@ -1616,44 +1978,20 @@ def render_batch_billing_ui(
     # alpha=0.3 → 새 데이터 30%, 기존 평균 70% 반영.
     _ema_per_company: float | None = None
     _EMA_ALPHA = 0.3
-    # PDF 변환은 Excel COM subprocess 시작/종료가 회사당 11~40초로 가장 큰 병목.
-    # dl_pdf 가 켜진 경우만 BatchExcelPdf 컨텍스트로 Excel 1개를 batch 내내 살려두고
-    # 회사마다 stdin 으로 변환 명령만 전달 → 2번째 호출부터 회사당 2~4초.
-    from pdf_export import BatchExcelPdf as _BatchExcelPdf
-    print(f"[정산루프] dl_pdf={dl_pdf}, BatchExcelPdf 사용여부 결정")
-    _pdf_ctx = _BatchExcelPdf() if dl_pdf else None
-    try:
-      # __enter__ 도 try 안에서 호출 — 서버 시작 자체에서 예외가 나도 finally
-      # 에서 안전하게 __exit__(=정리) 가 불리도록.
-      if _pdf_ctx is not None:
-          _t_enter = _t_perf2.time()
-          _pdf_ctx.__enter__()
-          _t_enter_elapsed = _t_perf2.time() - _t_enter
-          _server_ready = (_pdf_ctx._proc is not None and _pdf_ctx._proc.poll() is None)
-          print(
-              f"[정산루프] BatchExcelPdf.__enter__: {_t_enter_elapsed:.3f}초, "
-              f"서버 가동={_server_ready} "
-              f"({'재사용 모드 (빠름)' if _server_ready else 'fallback 모드 (단일 호출)'})"
-          )
-      with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
+    with _zip.ZipFile(zip_buf, "w", _zip.ZIP_DEFLATED) as zf:
         total = len(_checked)
         for idx, c in enumerate(_checked, 1):
-            _t_company_start = _t_perf2.time()
             _remaining = (
                 _ema_per_company * (total - _finished_count)
                 if _ema_per_company is not None and total > _finished_count
                 else None
             )
-            # ──[진단] section A: overlay render ─────────────────────
-            _t_sec = _t_perf2.time()
             _render_batch_overlay(
                 overlay_ph, idx=idx, total=total, company=c,
                 remaining_seconds=_remaining,
             )
-            _t_A_overlay = _t_perf2.time() - _t_sec
+            _t_company_start = _t_perf2.time()
 
-            # ──[진단] section B: 회사별 저장값 lookup ───────────────
-            _t_sec = _t_perf2.time()
             _nc          = _norm_of.get(c) or _norm_account_key(c)
             _saved_for   = _fast_lookup(_orders_all,    _orders_norm,    c, _nc) or []
             _manual_for  = _fast_lookup(_manual_all,    _manual_norm,    c, _nc) or []
@@ -1677,10 +2015,7 @@ def render_batch_billing_ui(
             else:
                 _rate_date_for_c = _batch_rate_date_str
             _min_amt, _min_cur = _min_charge_for_account(c)
-            _t_B_lookup = _t_perf2.time() - _t_sec
 
-            # ──[진단] section C: 정산 함수 호출 (xlsx + pdf 내부 측정) ─
-            _t_sec = _t_perf2.time()
             res = _run_batch_single_billing(
                 selected_company=c,
                 billing_month=billing_month,
@@ -1704,9 +2039,7 @@ def render_batch_billing_ui(
                 billable_skus=billable_skus,
                 dl_xlsx=dl_xlsx,
                 dl_pdf=dl_pdf,
-                pdf_converter=_pdf_ctx,
             )
-            _t_C_billing = _t_perf2.time() - _t_sec
 
             _paid_names = [nm for nm, _ in (res.get("paid_in_hidden") or [])]
             policy_applied = None
@@ -1731,7 +2064,6 @@ def render_batch_billing_ui(
                     ]
                     _save_order_for_account(c, _new_saved)
                     policy_applied = "moved"
-                    _t_sec2 = _t_perf2.time()
                     res = _run_batch_single_billing(
                         selected_company=c,
                         billing_month=billing_month,
@@ -1755,10 +2087,7 @@ def render_batch_billing_ui(
                         billable_skus=billable_skus,
                         dl_xlsx=dl_xlsx,
                         dl_pdf=dl_pdf,
-                        pdf_converter=_pdf_ctx,
                     )
-                    # policy=move 인 경우 정산이 1회 더 — 그 시간도 C 에 합산.
-                    _t_C_billing += _t_perf2.time() - _t_sec2
 
             if not res["ok"]:
                 results.append({
@@ -1773,18 +2102,13 @@ def render_batch_billing_ui(
                 _finished_count += 1
                 continue
 
-            # ──[진단] section D: zip writestr (메모리 → 압축) ───────
-            _t_sec = _t_perf2.time()
             _safe = safe_re.sub("_", c).strip() or "전체"
             _stem = f"sGMP_Invoice_{_safe}"
             if dl_xlsx and res.get("excel_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.xlsx", res["excel_bytes"])
             if dl_pdf and res.get("pdf_bytes"):
                 zf.writestr(f"{_safe}/{_stem}.pdf", res["pdf_bytes"])
-            _t_D_zip = _t_perf2.time() - _t_sec
 
-            # ──[진단] section E: 결과 bookkeeping ────────────────────
-            _t_sec = _t_perf2.time()
             _val_w = res.get("validation_warnings") or []
             results.append({
                 "company": c,
@@ -1802,17 +2126,8 @@ def render_batch_billing_ui(
             if _val_w:
                 _hint += f" · 🚨 정합성 경고 {len(_val_w)}건"
             log_lines.append(f"✅ **{c}**{_hint}")
-            _t_E_bookkeep = _t_perf2.time() - _t_sec
             _t_company_elapsed = _t_perf2.time() - _t_company_start
-            _t_other = _t_company_elapsed - (
-                _t_A_overlay + _t_B_lookup + _t_C_billing + _t_D_zip + _t_E_bookkeep
-            )
-            print(
-                f"[정산루프] ({idx}/{total}) {c} 합계 {_t_company_elapsed:.2f}s = "
-                f"A.overlay {_t_A_overlay:.2f} + B.lookup {_t_B_lookup:.3f} + "
-                f"C.billing {_t_C_billing:.2f} + D.zip {_t_D_zip:.3f} + "
-                f"E.bookkeep {_t_E_bookkeep:.3f} + 기타 {_t_other:.3f}"
-            )
+            print(f"[정산루프] ({idx}/{total}) {c} 완료: {_t_company_elapsed:.3f}초")
             _ema_per_company = _update_ema(_ema_per_company, _t_company_elapsed, _EMA_ALPHA)
             # 결과 expander 표시용 timing 라인만 수집 (UI 실시간 표시는 오버레이가 담당)
             _timings_lines.append(
@@ -1830,13 +2145,6 @@ def render_batch_billing_ui(
         _timings_lines.append(
             f"**전체 완료: {_t_loop_total:.2f}초 ({len(_checked)}개사)**"
         )
-    finally:
-        # BatchExcelPdf 정리 — Excel 인스턴스 종료. 정산 도중 예외나도 반드시 호출.
-        if _pdf_ctx is not None:
-            try:
-                _pdf_ctx.__exit__(None, None, None)
-            except Exception:
-                pass
 
     # 루프 종료 — 오버레이 제거 (결과 영역이 자연스럽게 노출됨)
     overlay_ph.empty()
@@ -1847,105 +2155,22 @@ def render_batch_billing_ui(
     n_err    = sum(1 for r in results if r["status"] == "error")
     n_total  = len(results)
 
-    st.markdown("---")
-    st.markdown(f"### 결과 요약 ({n_ok}/{n_total} 성공)")
-    if n_paid > 0:
-        st.warning(
-            f"⚠️ 비용발생 SKU 가 포함된 회사 **{n_paid}개** — 엑셀 총액이 실제 "
-            "청구액보다 적게 표시되었을 수 있습니다."
-        )
-    if n_err > 0:
-        st.error(f"❌ 정산 실패 {n_err}개사 — 아래 로그 확인")
-    if n_skip > 0:
-        st.info(f"⏭ 건너뛴 회사 {n_skip}개사 (정책=건너뛰기)")
-
-    # 정합성 경고 회사 — 외부 발송 전 사용자 확인 필요. 결과 요약 직후 상단 노출.
-    _val_alerts = [r for r in results if r.get("validation_warnings")]
-    if _val_alerts:
-        st.error(
-            f"🚨 **엑셀 정합성 경고가 발생한 회사 {len(_val_alerts)}개** — "
-            "외부 발송 전 반드시 확인하세요."
-        )
-        with st.expander("🚨 정합성 경고 상세", expanded=True):
-            for r in _val_alerts:
-                st.markdown(f"**{r['company']}**")
-                for _w in r["validation_warnings"][:10]:
-                    st.markdown(f"- {_w}")
-                _rem = len(r["validation_warnings"]) - 10
-                if _rem > 0:
-                    st.markdown(f"- … 외 {_rem}건")
-
-    with st.expander("📋 회사별 정산 로그", expanded=False):
-        for ln in log_lines:
-            st.markdown(ln)
-        _has_paid = [r for r in results if r.get("paid_in_hidden")]
-        if _has_paid:
-            st.markdown("---")
-            st.markdown("**[비용발생] 상세:**")
-            for r in _has_paid:
-                _items = ", ".join(
-                    f"{nm}(₩{kw:,})" for nm, kw in r["paid_in_hidden"]
-                )
-                st.markdown(f"- {r['company']}: {_items}")
-
-    # 단계별 소요시간은 디버그용 expander 에 별도 노출 (기본 닫힘)
-    if _timings_lines:
-        with st.expander("⏱ 단계별 소요시간 (디버그)", expanded=False):
-            st.markdown("  \n".join(_timings_lines))
-
-    if n_ok > 0:
-        # 같은 batch 결과에 대해 한 번만 파일명 결정 + 카운터 증가.
-        # zip 콘텐츠 hash 로 새 batch 인지 식별 (rerun 시 같은 이름 유지).
-        import hashlib as _hl
-        _zip_bytes = zip_buf.getvalue()
-        _batch_key = _hl.md5(_zip_bytes[:4096]).hexdigest()
-        if st.session_state.get("_batch_zip_key") != _batch_key:
-            _zip_name = _next_batch_zip_filename(billing_month)
-            st.session_state._batch_zip_key      = _batch_key
-            st.session_state._batch_zip_name     = _zip_name
-            st.session_state._batch_auto_dl_key  = _batch_key  # 자동 클릭 1회 트리거
-        else:
-            _zip_name = st.session_state.get("_batch_zip_name") or f"{billing_month or 'all'}.zip"
-
-        st.download_button(
-            f"📦 zip 다운로드 ({_zip_name})",
-            data=_zip_bytes,
-            file_name=_zip_name,
-            mime="application/zip",
-            type="primary",
-            use_container_width=True,
-            key="_batch_zip_dl_btn",
-        )
-
-        # 정산 완료 직후 1회 자동 클릭 — 단일 모드와 동일 패턴.
-        # st.download_button 은 blob 다운로드라 a[href=data:] 보다 안전.
-        _auto_key = st.session_state.get("_batch_auto_dl_key")
-        if _auto_key and st.session_state.get("_batch_auto_dl_fired") != _auto_key:
-            st.html(
-                f"""
-                <script>
-                (function(){{
-                  const KEY = {json.dumps(_auto_key)};
-                  if (window.__sphBatchAutoDlKey === KEY) return;
-                  window.__sphBatchAutoDlKey = KEY;
-                  function tryClick(){{
-                    const btns = Array.from(document.querySelectorAll('button'))
-                      .filter(b => (b.textContent || '').indexOf('zip 다운로드') !== -1);
-                    if (!btns.length) return false;
-                    btns[0].click();
-                    return true;
-                  }}
-                  let n = 0;
-                  const iv = setInterval(() => {{
-                    if (tryClick() || ++n > 40) clearInterval(iv);  // 최대 4s 대기
-                  }}, 100);
-                }})();
-                </script>
-                """,
-            )
-            st.session_state._batch_auto_dl_fired = _auto_key
-    else:
-        st.info("다운로드할 결과가 없습니다.")
+    # 캐시에 저장 → 다운로드 클릭 등으로 rerun 되어도 결과 요약 유지.
+    _ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    _zip_name = f"전체정산_{billing_month or 'all'}_{_ts}.zip"
+    st.session_state["_batch_summary_cache"] = {
+        "results":        results,
+        "log_lines":      log_lines,
+        "timings_lines":  _timings_lines,
+        "billing_month":  billing_month,
+        "zip_bytes":      zip_buf.getvalue() if n_ok > 0 else b"",
+        "zip_name":       _zip_name,
+        "n_ok": n_ok, "n_paid": n_paid, "n_skip": n_skip,
+        "n_err": n_err, "n_total": n_total,
+    }
+    # 첫 렌더 후 1회 자동 다운로드 트리거하기 위한 플래그.
+    st.session_state["_batch_auto_dl_pending"] = (n_ok > 0)
+    _render_batch_summary(st.session_state["_batch_summary_cache"])
 
 
 # ── 계정별 최소사용비용 저장/로드 ───────────────────────────────────────────
@@ -2124,6 +2349,57 @@ def _unique_skus_for_account(tmp_path: str, billing_month: str,
     )
     usage_by_name: dict[str, int] = {}
     for r in rows:
+        nm = (r.get("sku_name") or "").strip()
+        if not nm or _is_tax_sku(nm):
+            continue
+        usage_by_name[nm] = usage_by_name.get(nm, 0) + int(r.get("usage_amount") or 0)
+    return sorted(nm for nm, u in usage_by_name.items() if u > 0)
+
+
+def _projects_for_account(
+    tmp_path: str, billing_month: str, account: str | None
+) -> list[tuple[str, str]]:
+    """선택된 계정의 CSV 에서 발견된 프로젝트 목록 [(project_id, project_name), ...].
+
+    per_project 모드 UI 의 탭 후보 / 신규 프로젝트 탐지에 사용. 사용량 desc →
+    project_id asc 로 결정적 정렬 (project_sheet.py 의 기존 _proj_sort_key 와
+    무관 — UI 후보 목록을 생성하기 위한 1차 정렬일 뿐, 최종 표시 순서는
+    saved_project_orders.json + _resolve_project_order 가 결정한다).
+    """
+    rows = preprocess_usage_file(
+        tmp_path, billing_month, company_filter=account
+    )
+    usage_by_pid: dict[str, int] = {}
+    name_by_pid: dict[str, str] = {}
+    for r in rows:
+        pid = (r.get("project_id") or "").strip()
+        if not pid:
+            continue
+        usage_by_pid[pid] = usage_by_pid.get(pid, 0) + int(r.get("usage_amount") or 0)
+        nm = (r.get("project_name") or "").strip()
+        if nm and pid not in name_by_pid:
+            name_by_pid[pid] = nm
+    ordered = sorted(
+        usage_by_pid.keys(),
+        key=lambda p: (-usage_by_pid[p], p),
+    )
+    return [(pid, name_by_pid.get(pid) or pid) for pid in ordered]
+
+
+def _unique_skus_for_project(
+    tmp_path: str, billing_month: str, account: str | None, project_id: str
+) -> list[str]:
+    """per_project 모드 SKU 패널용 — 선택 프로젝트의 CSV usage > 0 SKU 목록.
+
+    _unique_skus_for_account 와 동일 정렬(가나다순). 세금 SKU 제외.
+    """
+    rows = preprocess_usage_file(
+        tmp_path, billing_month, company_filter=account
+    )
+    usage_by_name: dict[str, int] = {}
+    for r in rows:
+        if (r.get("project_id") or "") != project_id:
+            continue
         nm = (r.get("sku_name") or "").strip()
         if not nm or _is_tax_sku(nm):
             continue
@@ -3837,6 +4113,153 @@ if True:
             except Exception as _e:
                 st.error(f"전처리 재실행 실패: {_e}")
 
+        # ═══ per_project 모드 진입: 프로젝트 선택 (탭 스트립) ════════════════
+        # 저장된 billing_mode 를 미리 읽어 col_left 의 SKU 패널을 어느 프로젝트
+        # 기준으로 그릴지 결정. 라디오(horizontal) 는 시각적으로 탭과 거의 동일
+        # 하면서, 한 번에 1개만 렌더되어 sortable iframe 도 1개만 생성된다.
+        # account 모드면 _pp_project_id = None → 기존 흐름 그대로.
+        _curr_mode_for_panel = _load_billing_modes().get(
+            _order_account_key, BILLING_MODE_ACCOUNT
+        )
+        _pp_project_id: str | None = None
+        _pp_label: str | None = None
+        _pp_discovered: list[tuple[str, str]] = []
+        _pp_ordered_ids: list[str] = []
+        _pp_labels_map: dict[str, str] = {}
+        if _curr_mode_for_panel == BILLING_MODE_PER_PROJECT:
+            _pp_discovered = _projects_for_account(
+                str(tmp_input_path), billing_month, selected_company
+            )
+            if _pp_discovered:
+                _pp_ordered_ids, _pp_labels_map = _resolve_project_order(
+                    _order_account_key, _pp_discovered
+                )
+                # 신규(저장 안된) 프로젝트가 끝에 추가됐으면 즉시 영구 저장 →
+                # 다음 진입 때 알파벳이 아닌 saved 순서로 복원.
+                _saved_pp = _load_project_orders().get(_order_account_key) or {"order": []}
+                if list(_saved_pp.get("order") or []) != _pp_ordered_ids:
+                    _save_project_order_for_account(
+                        _order_account_key, _pp_ordered_ids, _pp_labels_map
+                    )
+                with st.container(border=True, key="pp_project_strip"):
+                    st.markdown("#### 🗂 프로젝트별 독립 정산 (per_project)")
+                    st.caption(
+                        "프로젝트 순서를 드래그로 조정하고, 아래 라디오로 SKU 패널에 "
+                        "표시할 프로젝트를 선택하세요. 각 프로젝트는 SKU 순서·직접등록·"
+                        "미노출이 독립 저장되며, 엑셀 출력에도 그대로 반영됩니다."
+                    )
+
+                    # ── 프로젝트 순서 드래그앤드롭 ────────────────────────
+                    # display = "프로젝트명 · project-id" (라벨 충돌 방지) — 정렬 후
+                    # 다시 id 로 복원해서 saved_project_orders.json 갱신.
+                    _proj_disp_to_id: dict[str, str] = {}
+                    for _pid in _pp_ordered_ids:
+                        _nm = _pp_labels_map.get(_pid, _pid)
+                        _disp = (
+                            f"{_nm}  ·  {_pid}" if _nm != _pid else _pid
+                        )
+                        # 동일 display 가 또 나오면 id 강제 append 로 유일성 보장.
+                        if _disp in _proj_disp_to_id:
+                            _disp = f"{_nm}  ·  {_pid}"
+                        _proj_disp_to_id[_disp] = _pid
+                    _proj_displays = list(_proj_disp_to_id.keys())
+
+                    _PROJ_SORT_CSS = """
+                    .sortable-component {
+                        background: linear-gradient(135deg,#fff7eb 0%,#ffeacc 100%) !important;
+                        border: 2px dashed #d18800 !important;
+                        border-radius: 12px !important;
+                        padding: 10px !important;
+                        gap: 6px !important;
+                    }
+                    .sortable-item, .sortable-item:hover, .sortable-item:focus {
+                        background: #ffffff !important;
+                        color: #5a3700 !important;
+                        border: 1.5px solid #e0b870 !important;
+                        border-left: 4px solid #d18800 !important;
+                        border-radius: 8px !important;
+                        padding: 8px 12px !important;
+                        margin: 0 !important;
+                        font-weight: 600 !important;
+                        font-size: 0.9rem !important;
+                        cursor: grab !important;
+                        min-height: 36px !important;
+                    }
+                    .sortable-item:active { cursor: grabbing !important; }
+                    """
+                    _proj_sort_key = (
+                        f"_pp_proj_order::{_order_account_key}::"
+                        f"{hashlib.md5(chr(31).join(sorted(_proj_displays)).encode()).hexdigest()[:8]}"
+                    )
+                    _proj_reordered = sort_items(
+                        _proj_displays,
+                        direction="vertical",
+                        custom_style=_PROJ_SORT_CSS,
+                        key=_proj_sort_key,
+                    )
+                    _new_pid_order = [
+                        _proj_disp_to_id[d] for d in _proj_reordered
+                        if d in _proj_disp_to_id
+                    ]
+                    if _new_pid_order and _new_pid_order != _pp_ordered_ids:
+                        _save_project_order_for_account(
+                            _order_account_key, _new_pid_order, _pp_labels_map
+                        )
+                        _pp_ordered_ids = _new_pid_order
+
+                    st.markdown("##### 📌 SKU 패널에 표시할 프로젝트")
+                    _pp_project_id = st.radio(
+                        "프로젝트 (per_project)",
+                        options=_pp_ordered_ids,
+                        format_func=lambda p: _pp_labels_map.get(p, p),
+                        horizontal=True,
+                        key=f"_pp_active_pid::{_order_account_key}",
+                        label_visibility="collapsed",
+                    )
+                _pp_label = _pp_labels_map.get(_pp_project_id, _pp_project_id)
+
+        # ── IO 어댑터: PP 모드면 프로젝트별 파일, 아니면 계정 단위 파일 ──
+        # 프로젝트별 데이터가 비어 있으면 계정 단위 데이터를 seed 로 사용 →
+        # 사용자가 패널 진입 직후부터 기존 순서/직접등록/미노출 그대로 시작.
+        def _make_io_adapters(acc: str, pid: str | None):
+            if pid is None:
+                return (
+                    lambda: _lookup_account(_load_saved_orders(), acc) or [],
+                    lambda lst: _save_order_for_account(acc, lst),
+                    lambda: _lookup_account(_load_manual_skus_map(), acc) or [],
+                    lambda lst: _save_manual_skus_for_account(acc, lst),
+                    lambda: _lookup_account(_load_hidden_skus_map(), acc) or [],
+                    lambda lst: _save_hidden_skus_for_account(acc, lst),
+                )
+            def _seed(pp_load, base_load):
+                v = (pp_load().get(acc) or {}).get(pid)
+                if v:
+                    return list(v)
+                return list(_lookup_account(base_load(), acc) or [])
+            return (
+                lambda: _seed(_load_pp_orders,      _load_saved_orders),
+                lambda lst: _save_pp_order_for_project(acc, pid, lst),
+                lambda: _seed(_load_pp_manual_skus, _load_manual_skus_map),
+                lambda lst: _save_pp_manual_for_project(acc, pid, lst),
+                lambda: _seed(_load_pp_hidden_skus, _load_hidden_skus_map),
+                lambda lst: _save_pp_hidden_for_project(acc, pid, lst),
+            )
+        (
+            _adp_load_order, _adp_save_order,
+            _adp_load_manual, _adp_save_manual,
+            _adp_load_hidden, _adp_save_hidden,
+        ) = _make_io_adapters(_order_account_key, _pp_project_id)
+        _ui_suffix = (
+            f"{_order_account_key}::{_pp_project_id}"
+            if _pp_project_id else _order_account_key
+        )
+        # per_project 모드면 _found_skus 도 프로젝트 단위로 재계산.
+        # 빈 프로젝트(이번 CSV usage 0) 도 패널 자체는 노출 — 직접등록 가능.
+        if _pp_project_id is not None:
+            _found_skus = _unique_skus_for_project(
+                str(tmp_input_path), billing_month, selected_company, _pp_project_id
+            )
+
         col_left, col_right = st.columns([1, 1], vertical_alignment="top", gap="large")
 
         # ═══ 좌측: SKU 순서 드래그앤드롭 ═══════════════════════════════════
@@ -3844,23 +4267,18 @@ if True:
         # container 로 명확히 구분해서 시각적 그룹핑을 만든다.
         with col_left, st.container(border=True, key="sku_order_panel"):
             # 마스터 SKU 직접등록 목록 (이번 CSV 사용량 0 이어도 노출하고 싶은
-            # 항목 — 사용자가 multiselect 로 수동 선택). 계정별 저장.
-            _saved_manual_all   = _load_manual_skus_map()
-            _manual_skus_saved  = _lookup_account(
-                _saved_manual_all, _order_account_key) or []
+            # 항목 — PP 모드면 프로젝트 단위, account 모드면 계정 단위 저장).
+            _manual_skus_saved  = _adp_load_manual()
 
             # CSV 사용량과 직접등록이 모두 비어 있어도 드래그 영역·직접등록
             # 영역은 노출 — 사용자가 마스터에서 SKU 를 직접 추가할 수 있게.
             if True:
-                _saved_orders = _load_saved_orders()
-                _saved_for_this = _lookup_account(
-                    _saved_orders, _order_account_key) or []
+                _saved_for_this = _adp_load_order()
 
                 # 미노출(hidden) SKU 는 sku_order 패널 자체에서도 빼서 출력
                 # 대상만 보이게 한다 — 출력 결과(엑셀 3개)와 패널 표시를 일관.
                 # hidden 패널에서 복원(X)하면 다음 rerun 에 다시 패널에 등장.
-                _saved_hidden_pre = _lookup_account(
-                    _load_hidden_skus_map(), _order_account_key) or []
+                _saved_hidden_pre = _adp_load_hidden()
                 _hidden_set_for_order = set(_saved_hidden_pre)
 
                 # saved_orders(=GMP 순서)를 walk 하면서 각 항목을 existing/manual 로 분류
@@ -3950,7 +4368,7 @@ if True:
                     "\x1f".join(sorted(_initial)).encode("utf-8")
                 ).hexdigest()[:10]
                 _order_state_key = (
-                    f"_sku_order::{_order_account_key}::{_items_fingerprint}"
+                    f"_sku_order::{_ui_suffix}::{_items_fingerprint}"
                 )
 
                 # 사이트 룩앤필 스타일 (teal / light-green 팔레트)
@@ -4113,19 +4531,23 @@ if True:
                 ]
                 if sku_order and sku_order != _visible_saved:
                     _new_saved = list(sku_order) + _hidden_in_saved
-                    _save_order_for_account(_order_account_key, _new_saved)
+                    _adp_save_order(_new_saved)
 
                 # 현재 순서 저장 버튼 (secondary)
+                _save_btn_target = (
+                    f"'{_order_account_key}' / 프로젝트 '{_pp_label}'"
+                    if _pp_project_id else f"'{_order_account_key}' 계정"
+                )
                 if st.button(
                     "💾  현재 순서 저장",
-                    key=f"_save_order_btn_{_order_account_key}",
+                    key=f"_save_order_btn_{_ui_suffix}",
                     type="secondary",
                     use_container_width=True,
-                    help=f"'{_order_account_key}' 계정의 현재 SKU 순서를 저장합니다.",
+                    help=f"{_save_btn_target}의 현재 SKU 순서를 저장합니다.",
                 ):
-                    _save_order_for_account(_order_account_key, sku_order)
+                    _adp_save_order(sku_order)
                     st.toast(
-                        f"✅ '{_order_account_key}' SKU 순서 저장 완료",
+                        f"✅ {_save_btn_target} SKU 순서 저장 완료",
                         icon="💾",
                     )
                     st.rerun()
@@ -4161,18 +4583,19 @@ if True:
                 ]
 
                 # ── 콜백: 멀티셀렉트 변경 시 즉시 저장 + 선택 해제 ──────
-                _manual_add_key = f"_manual_add_ms::{_order_account_key}"
+                _manual_add_key = f"_manual_add_ms::{_ui_suffix}"
 
                 def _on_manual_add(
-                    acc: str = _order_account_key,
                     ms_key: str = _manual_add_key,
+                    _load=_adp_load_manual,
+                    _save=_adp_save_manual,
                 ) -> None:
                     _sel = list(st.session_state.get(ms_key, []) or [])
                     if not _sel:
                         return
-                    _curr = _load_manual_skus_map().get(acc, [])
+                    _curr = _load()
                     _new  = list(dict.fromkeys(_curr + _sel))
-                    _save_manual_skus_for_account(acc, _new)
+                    _save(_new)
                     st.session_state[ms_key] = []  # 선택 해제 — 패널에 chip 만 남도록
                     st.toast(f"✏️ 직접등록 {len(_sel)}개 추가", icon="➕")
 
@@ -4191,11 +4614,13 @@ if True:
 
                 # ── 콜백: X 버튼 클릭 시 즉시 1개 제거 ────────────────────
                 def _on_manual_remove(
-                    acc: str, sku: str,
+                    sku: str,
+                    _load=_adp_load_manual,
+                    _save=_adp_save_manual,
                 ) -> None:
-                    _curr = _load_manual_skus_map().get(acc, [])
+                    _curr = _load()
                     _new  = [x for x in _curr if x != sku]
-                    _save_manual_skus_for_account(acc, _new)
+                    _save(_new)
                     st.toast(f"🗑 '{sku}' 직접등록 해제", icon="✏️")
 
                 # 직접등록된 SKU 개별 X 버튼 (현재 CSV 에 없는 것만 표시)
@@ -4214,11 +4639,11 @@ if True:
                         with _c2:
                             st.button(
                                 "✕",
-                                key=f"_rm_manual::{_order_account_key}::{_ms}",
+                                key=f"_rm_manual::{_ui_suffix}::{_ms}",
                                 help=f"'{_ms}' 직접등록 해제",
                                 use_container_width=True,
                                 on_click=_on_manual_remove,
-                                args=(_order_account_key, _ms),
+                                args=(_ms,),
                             )
 
                 # ── 엑셀 미노출 SKU (수동) ──────────────────────────────
@@ -4227,9 +4652,7 @@ if True:
                 # 에서 sku_name 매칭 항목만 제거 → 출력물에서만 빠진다.
                 # UI 패턴: 직접등록 SKU 와 동일 — multiselect(빈 default + on_change
                 # 누적 저장) + 등록 항목별 chip + X 버튼.
-                _saved_hidden_all = _load_hidden_skus_map()
-                _saved_hidden_for_this = _lookup_account(
-                    _saved_hidden_all, _order_account_key) or []
+                _saved_hidden_for_this = _adp_load_hidden()
                 # 후보 풀 = 이번 정산에 의미 있는 모든 SKU
                 #         = CSV 발견 ∪ 직접등록 SKU (중복 제거, found 우선 순서)
                 # sku_order 자체는 hidden 을 이미 제외했기 때문에 후보 계산에
@@ -4249,18 +4672,19 @@ if True:
                     s for s in _hidden_pool if s not in _hidden_for_this
                 ]
 
-                _hidden_add_key = f"_hidden_add_ms::{_order_account_key}"
+                _hidden_add_key = f"_hidden_add_ms::{_ui_suffix}"
 
                 def _on_hidden_add(
-                    acc: str = _order_account_key,
                     ms_key: str = _hidden_add_key,
+                    _load=_adp_load_hidden,
+                    _save=_adp_save_hidden,
                 ) -> None:
                     _sel = list(st.session_state.get(ms_key, []) or [])
                     if not _sel:
                         return
-                    _curr = _load_hidden_skus_map().get(acc, [])
+                    _curr = _load()
                     _new  = list(dict.fromkeys(_curr + _sel))
-                    _save_hidden_skus_for_account(acc, _new)
+                    _save(_new)
                     st.session_state[ms_key] = []  # 선택 해제 — 패널에 chip 만 남도록
                     st.toast(f"🚫 미노출 {len(_sel)}개 추가", icon="🚫")
 
@@ -4278,10 +4702,14 @@ if True:
                     ),
                 )
 
-                def _on_hidden_remove(acc: str, sku: str) -> None:
-                    _curr = _load_hidden_skus_map().get(acc, [])
+                def _on_hidden_remove(
+                    sku: str,
+                    _load=_adp_load_hidden,
+                    _save=_adp_save_hidden,
+                ) -> None:
+                    _curr = _load()
                     _new  = [x for x in _curr if x != sku]
-                    _save_hidden_skus_for_account(acc, _new)
+                    _save(_new)
                     st.toast(f"♻ '{sku}' 노출 복원", icon="♻")
 
                 # [비용발생] 판정: 직전 정산 결과(_last_result) 의 line_items
@@ -4341,11 +4769,11 @@ if True:
                         with _c2:
                             st.button(
                                 "✕",
-                                key=f"_rm_hidden::{_order_account_key}::{_hs}",
+                                key=f"_rm_hidden::{_ui_suffix}::{_hs}",
                                 help=f"'{_hs}' 노출 복원",
                                 use_container_width=True,
                                 on_click=_on_hidden_remove,
-                                args=(_order_account_key, _hs),
+                                args=(_hs,),
                             )
 
         # ═══ 우측: 과금 방식 / 통화·환율 / 다운로드 옵션(+정산 시작) ═══
@@ -4924,6 +5352,7 @@ if True:
                                 free_cap_override=_proj_sku_free_cap.get(_pid),
                             )
                             _per_proj_invoices.append({
+                                "proj_id":    _pid,
                                 "proj_name":  _proj_name_map[_pid],
                                 "line_items": _items,
                             })
@@ -4938,6 +5367,53 @@ if True:
                             if billing_mode == "per_project" else None
                         ),
                     )
+
+                    # ── per_project 정렬 + 프로젝트별 데이터 맵 ──────────
+                    _pp_sku_order_map: dict[str, list[str]] = {}
+                    _pp_hidden_map:    dict[str, set[str]]  = {}
+                    _pp_manual_map:    dict[str, list[str]] = {}
+                    _pp_proj_name_order: list[str] | None = None
+                    if billing_mode == "per_project" and _per_proj_invoices:
+                        _pp_pids_in_excel = [
+                            _e.get("proj_id") for _e in _per_proj_invoices
+                            if _e.get("proj_id")
+                        ]
+                        _saved_pp_order = (
+                            _load_project_orders().get(_order_account_key)
+                            or {"order": []}
+                        ).get("order") or []
+                        _saved_set = set(_saved_pp_order)
+                        _ordered_pids = [
+                            p for p in _saved_pp_order if p in _pp_pids_in_excel
+                        ]
+                        _ordered_pids += [
+                            p for p in _pp_pids_in_excel if p not in _saved_set
+                        ]
+                        if _ordered_pids:
+                            _idx_of = {pid: i for i, pid in enumerate(_ordered_pids)}
+                            _per_proj_invoices.sort(
+                                key=lambda _e: _idx_of.get(_e.get("proj_id"), 1_000_000)
+                            )
+                            _name_idx_of = {
+                                str(_e.get("proj_name") or ""): _i
+                                for _i, _e in enumerate(_per_proj_invoices)
+                            }
+                            proj_results = sorted(
+                                proj_results or [],
+                                key=lambda _pr: _name_idx_of.get(
+                                    str(_pr.get("proj_name") or ""), 1_000_000
+                                ),
+                            )
+                            _pp_proj_name_order = [
+                                str(_e.get("proj_name") or "")
+                                for _e in _per_proj_invoices
+                            ]
+                        _pp_sku_order_map, _pp_hidden_map, _pp_manual_map = (
+                            _build_pp_excel_maps(
+                                _order_account_key, _ordered_pids,
+                                account_fallback_order=sku_order,
+                            )
+                        )
 
                     # ── 직접등록 SKU 빈 라인 주입 (출력 단계 한정) ──────────
                     # 사용자가 사이드 패널에서 마스터로부터 직접 추가한 SKU 중
@@ -4988,23 +5464,37 @@ if True:
                         _manual_keep_set |= set(_manual_for_inject)
 
                         # per_project 모드: 각 프로젝트 line_items 에도 주입
-                        # (해당 프로젝트에 없는 manual SKU 만)
+                        # (PP 모드면 그 프로젝트의 manual 목록, 아니면 account 단위)
                         if _per_proj_invoices:
                             for _entry in _per_proj_invoices:
                                 _proj_items = _entry.get("line_items") or []
                                 _proj_names = {
                                     getattr(_it, "sku_name", "") for _it in _proj_items
                                 }
-                                for _nm in _manual_for_inject:
+                                if billing_mode == "per_project":
+                                    _manuals_for_this = _pp_manual_map.get(
+                                        _entry.get("proj_id"), []
+                                    )
+                                else:
+                                    _manuals_for_this = _manual_for_inject
+                                for _nm in _manuals_for_this:
                                     if _nm and _nm not in _proj_names:
                                         _proj_items.append(_make_stub(_nm))
                                 _entry["line_items"] = _proj_items
+                                _manual_keep_set |= set(_manuals_for_this)
 
                     # ── 수동 미노출 SKU 필터 (출력 단계 한정) ──────────────
                     # 엔진 결과(line_items / proj_results / _per_proj_invoices) 는
                     # 그대로 두고, 엑셀 생성 함수에 넘겨줄 **사본**에서 지정된
                     # sku_name 만 제거한다. waterfall 계산·무료 배분은 영향 없음.
-                    _hidden_set = set(hidden_skus or [])
+                    if billing_mode == "per_project" and _pp_hidden_map:
+                        # 비용발생 경고: 프로젝트별 hidden 의 합집합으로 판정.
+                        _hidden_union: set[str] = set()
+                        for _hs in _pp_hidden_map.values():
+                            _hidden_union |= _hs
+                        _hidden_set = _hidden_union
+                    else:
+                        _hidden_set = set(hidden_skus or [])
                     if _hidden_set:
                         _hidden_impact_krw = sum(
                             int(getattr(_it, "final_krw", 0) or 0)
@@ -5018,6 +5508,49 @@ if True:
                                 "완전 무료 SKU 만 제외하려면 해당 항목을 선택에서 빼세요."
                             )
 
+                    if billing_mode == "per_project" and _pp_hidden_map:
+                        # PP 모드: 프로젝트별 hidden 으로 entry/proj 필터.
+                        _line_items_out = list(line_items)
+                        _proj_results_out = []
+                        for _pr in (proj_results or []):
+                            _pr_name = str(_pr.get("proj_name") or "")
+                            _pid_of = next(
+                                (_e.get("proj_id") for _e in (_per_proj_invoices or [])
+                                 if str(_e.get("proj_name") or "") == _pr_name),
+                                None,
+                            )
+                            _hs = _pp_hidden_map.get(_pid_of or "", set())
+                            _skus_filtered = {
+                                _nm: _v for _nm, _v in (_pr.get("skus") or {}).items()
+                                if _nm not in _hs
+                            }
+                            if not _skus_filtered:
+                                continue
+                            _new_pr = dict(_pr)
+                            _new_pr["skus"] = _skus_filtered
+                            _new_pr["total_usd"] = sum(
+                                (_v.get("subtotal_usd") or 0)
+                                for _v in _skus_filtered.values()
+                            )
+                            _new_pr["total_krw"] = sum(
+                                (_v.get("final_krw") or 0)
+                                for _v in _skus_filtered.values()
+                            )
+                            _proj_results_out.append(_new_pr)
+                        _per_proj_invoices_out = []
+                        for _entry in (_per_proj_invoices or []):
+                            _hs = _pp_hidden_map.get(_entry.get("proj_id") or "", set())
+                            _items_f = [
+                                _it for _it in (_entry.get("line_items") or [])
+                                if getattr(_it, "sku_name", "") not in _hs
+                            ]
+                            _per_proj_invoices_out.append({
+                                "proj_id":    _entry.get("proj_id"),
+                                "proj_name":  _entry.get("proj_name"),
+                                "line_items": _items_f,
+                            })
+                        _sku_order_out = sku_order or None
+                    elif _hidden_set:
                         _line_items_out = [
                             _it for _it in line_items
                             if getattr(_it, "sku_name", "") not in _hidden_set
@@ -5050,25 +5583,24 @@ if True:
                                     if getattr(_it, "sku_name", "") not in _hidden_set
                                 ]
                                 _per_proj_invoices_out.append({
+                                    "proj_id":    _entry.get("proj_id"),
                                     "proj_name":  _entry.get("proj_name"),
                                     "line_items": _items_f,
                                 })
+                        _sku_order_out = [
+                            _n for _n in (sku_order or []) if _n not in _hidden_set
+                        ]
                     else:
                         _line_items_out        = line_items
                         _proj_results_out      = proj_results
                         _per_proj_invoices_out = _per_proj_invoices
+                        _sku_order_out = list(sku_order or [])
 
                     _render_loading(loading_ph, 55, "📄 Excel 인보이스 생성 중...")
                     _safe        = (selected_company or "전체").replace("/", "_").replace("\\", "_")
                     # 임시 — 파일명 앞에 's' prefix 부여 (테스트 산출물 구분용)
                     _fname_xlsx  = f"sGMP_Invoice_{_safe}.xlsx"
                     _fname_pdf   = f"sGMP_Invoice_{_safe}.pdf"
-                    # sku_order 에서도 미노출 항목 제거 — Invoice 시트 순서
-                    # 렌더 시 빈 섹션이 끼지 않도록 깔끔하게 정리.
-                    _sku_order_out = [
-                        _n for _n in (sku_order or [])
-                        if _n not in (_hidden_set if hidden_skus else set())
-                    ]
 
                     _excel_bytes = generate_formatted_invoice(
                         line_items           = _line_items_out,
@@ -5092,6 +5624,8 @@ if True:
                         include_project_sheet= include_project_sheet,
                         subtotal_round       = subtotal_round,
                         force_keep_skus      = _manual_keep_set or None,
+                        sku_order_per_project= _pp_sku_order_map or None,
+                        project_order_names  = _pp_proj_name_order,
                     )
 
                     # 엑셀 자체 정합성 검사 (단일 정산용) — 결과는 _result_dict
@@ -5099,15 +5633,23 @@ if True:
                     _val_warns_single: list[str] = []
                     if _excel_bytes:
                         try:
+                            # PP 모드 false positive 방지 — 실제 엑셀 출력된 SKU 합집합으로 검증.
+                            if billing_mode == "per_project" and _per_proj_invoices_out:
+                                _val_items = [
+                                    _it for _e in _per_proj_invoices_out
+                                    for _it in (_e.get("line_items") or [])
+                                ]
+                            else:
+                                _val_items = _line_items_out
                             _val_warns_single = validate_invoice_excel(
                                 _excel_bytes,
-                                line_items=_line_items_out,
+                                line_items=_val_items,
                                 company_name=selected_company or "전체",
                             )
                         except Exception as _ve:
                             _val_warns_single = [f"검사 함수 오류: {type(_ve).__name__}: {_ve}"]
                         if _val_warns_single:
-                            print(f"[정산] {selected_company} ⚠ 정합성 경고 {len(_val_warns_single)}건")
+                            print(f"[정산] {selected_company} [경고] 정합성 {len(_val_warns_single)}건")
 
                     # PDF 변환 (체크된 경우만)
                     _pdf_bytes = None
@@ -5115,15 +5657,8 @@ if True:
                     if dl_pdf:
                         _render_loading(loading_ph, 75, "📄 PDF 변환 중 (Excel 실행)...")
                         from pdf_export import xlsx_sheet_to_pdf
-                        # per_project 모드: 시트명이 프로젝트명이라 "Invoice"가 없음.
-                        # 첫 프로젝트 시트를 PDF 로 변환(단일 시트 PDF 제약 때문).
-                        if billing_mode == "per_project" and _per_proj_invoices:
-                            from invoice_generator import _safe_sheet_title
-                            _pdf_sheet = _safe_sheet_title(
-                                _per_proj_invoices[0]["proj_name"], used=[]
-                            )
-                        else:
-                            _pdf_sheet = "Invoice"
+                        # per_project 모드도 단일 "Invoice" 시트(블록 스택).
+                        _pdf_sheet = "Invoice"
                         _pdf_bytes, _pdf_error = xlsx_sheet_to_pdf(
                             _excel_bytes, _pdf_sheet
                         )
