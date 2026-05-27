@@ -1183,115 +1183,203 @@ def _merge_write(ws, r1: int, r2: int, col: int, value,
 # ─────────────────────────────────────────────────────────────────────────────
 # 내부 헬퍼: GMP Price List 시트 복제 (MergedCell 완전 방어)
 # ─────────────────────────────────────────────────────────────────────────────
-def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
-    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제.
-    src_wb 는 read-only 로만 사용하므로 캐시 워크북 공유 안전.
-    """
+# Price List 는 모든 회사가 동일한 파일을 본다. 회사마다 6000 셀(200×30) 을
+# src → dst 복사하면 회사당 1.5~2.5 초가 통째로 여기서 소비된다 (gfi 진단 결과).
+# 해결: 같은 price_list_file 에 대해 첫 호출에서 "컴파일된 템플릿" 을 만들고
+# 캐시 → 두 번째 호출부터는 캐시된 셀 데이터·스타일·치수를 새 시트에 그대로
+# 붙여 넣어 ~0.1초로 단축.
+# openpyxl Font/Fill/Border/Alignment 인스턴스는 workbook 간 공유해도 안전
+# (read-only 한 속성 컨테이너, 새 wb 의 _fonts/_fills/_borders 등 registry 에
+# 추가되기만 함).
+# ─────────────────────────────────────────────────────────────────────────────
+_PL_TEMPLATE_CACHE: "OrderedDict" = None  # 초기화는 첫 호출 시
+_PL_TEMPLATE_CACHE_MAX = 4
+
+
+def _get_pl_template(price_list_file) -> dict | None:
+    """price_list_file 에 대한 컴파일된 템플릿을 반환 (캐시). 실패 시 None."""
+    global _PL_TEMPLATE_CACHE
+    if _PL_TEMPLATE_CACHE is None:
+        from collections import OrderedDict as _OD
+        _PL_TEMPLATE_CACHE = _OD()
+
+    from billing.loader import _price_list_key, load_price_list_workbook
+    _key = _price_list_key(price_list_file)
+    if _key is not None and _key in _PL_TEMPLATE_CACHE:
+        _PL_TEMPLATE_CACHE.move_to_end(_key)
+        return _PL_TEMPLATE_CACHE[_key]
+
     try:
-        from billing.loader import load_price_list_workbook
         src_wb = load_price_list_workbook(price_list_file)
     except Exception:
-        return
-
+        return None
     src_ws = src_wb.worksheets[0]
-    dst_ws = wb.create_sheet("GMP Price List")
-    dst_ws.sheet_view.showGridLines = False
-
-    # 탭 색상
-    if src_ws.sheet_properties.tabColor:
-        dst_ws.sheet_properties.tabColor = copy(src_ws.sheet_properties.tabColor)
-
     from openpyxl.utils import get_column_letter
 
-    # 실제 데이터 범위로 제한 (시트 dim A1:Z1005 같이 과대 범위 순회 방지)
     max_row = min(src_ws.max_row or 1, 200)
     max_col = min(src_ws.max_column or 1, 30)
-
-    # 시트 기본값
     default_col_w = src_ws.sheet_format.defaultColWidth or 8.43
-    if src_ws.sheet_format.defaultColWidth:
-        dst_ws.sheet_format.defaultColWidth = src_ws.sheet_format.defaultColWidth
-    if src_ws.sheet_format.defaultRowHeight:
-        dst_ws.sheet_format.defaultRowHeight = src_ws.sheet_format.defaultRowHeight
 
-    # 명시적 열 너비 복사
-    explicit_cols = set()
+    # 명시 열 너비
+    explicit_cols: set[str] = set()
+    col_widths: dict[str, float] = {}
+    col_hidden: dict[str, bool] = {}
     for col_letter, col_dim in src_ws.column_dimensions.items():
-        dst_col = dst_ws.column_dimensions[col_letter]
         if col_dim.width and col_dim.width > 0:
-            dst_col.width = col_dim.width * 1.2
+            col_widths[col_letter] = col_dim.width * 1.2
             explicit_cols.add(col_letter)
-        dst_col.hidden = col_dim.hidden
+        if col_dim.hidden:
+            col_hidden[col_letter] = True
 
-    # column_dimensions에 없는 열(기본 너비 사용) → 셀 내용 길이로 자동 산정
+    # auto_w + 셀 값/스타일 추출을 한 번의 iter_rows 패스로 처리
     auto_w: dict[str, int] = {}
-    for row in src_ws.iter_rows(min_row=1, max_row=max_row,
-                                min_col=1, max_col=max_col):
-        for cell in row:
-            if isinstance(cell, MergedCell) or cell.value is None:
-                continue
-            cl = get_column_letter(cell.column)
-            if cl not in explicit_cols:
-                auto_w[cl] = max(auto_w.get(cl, 0), len(str(cell.value)))
-    for cl, w in auto_w.items():
-        dst_ws.column_dimensions[cl].width = max((w + 4) * 1.3, default_col_w)
-
-    # I열 추가 확장
-    if dst_ws.column_dimensions["I"].width:
-        dst_ws.column_dimensions["I"].width *= 1.25
-
-    # 행 높이
-    for row_idx, row_dim in src_ws.row_dimensions.items():
-        dst_row = dst_ws.row_dimensions[row_idx]
-        dst_row.height = row_dim.height
-        dst_row.hidden = row_dim.hidden
-
-    # 병합 범위 선이식
-    for merged_range in list(src_ws.merged_cells.ranges):
-        try:
-            dst_ws.merge_cells(str(merged_range))
-        except Exception:
-            pass
-
-    # 셀 값 + 스타일 복사 — 실제 데이터 범위로 제한
+    cells: list = []
+    cpm_cells: list = []  # CPM 보정 대상 (row, col)
     for row in src_ws.iter_rows(min_row=1, max_row=max_row,
                                 min_col=1, max_col=max_col):
         for src_cell in row:
             if isinstance(src_cell, MergedCell):
                 continue
+            v = src_cell.value
+            if src_cell.column == 1 and isinstance(v, str):
+                v = v.strip()
 
-            dst_cell = dst_ws.cell(row=src_cell.row, column=src_cell.column)
+            # auto_w 계산용
+            if v is not None:
+                cl = get_column_letter(src_cell.column)
+                if cl not in explicit_cols:
+                    auto_w[cl] = max(auto_w.get(cl, 0), len(str(v)))
 
-            if isinstance(dst_cell, MergedCell):
-                continue
-
-            # A 열(SKU 이름) 은 trailing/leading 공백 정리. 사용자 업로드 Price
-            # List 에 'Places API Place Details Enterprise ' 처럼 끝 공백이 있는
-            # 행이 있어, Invoice 의 SUMIF(exact match) 가 빠지는 문제 방지.
-            _v = src_cell.value
-            if src_cell.column == 1 and isinstance(_v, str):
-                _v = _v.strip()
-            dst_cell.value = _v
-
+            # 스타일 — copy() 한 번만 (캐시되어 모든 후속 회사에서 재사용)
             if src_cell.has_style:
-                dst_cell.font          = copy(src_cell.font)
-                dst_cell.fill          = copy(src_cell.fill)
-                dst_cell.border        = copy(src_cell.border)
-                dst_cell.alignment     = copy(src_cell.alignment)
-                dst_cell.number_format = src_cell.number_format
-                if src_cell.protection:
-                    dst_cell.protection = copy(src_cell.protection)
+                font_       = copy(src_cell.font)
+                fill_       = copy(src_cell.fill)
+                border_     = copy(src_cell.border)
+                alignment_  = copy(src_cell.alignment)
+                number_fmt  = src_cell.number_format
+                protection_ = copy(src_cell.protection) if src_cell.protection else None
+            else:
+                font_ = fill_ = border_ = alignment_ = number_fmt = protection_ = None
 
-    # "COST PER THOUSAND (CPM)" 셀 border 누락 보정 — 실제 데이터 범위만 순회
+            cells.append((
+                src_cell.row, src_cell.column, v,
+                font_, fill_, border_, alignment_, number_fmt, protection_,
+            ))
+
+            if v is not None and "COST PER THOUSAND" in str(v).upper():
+                cpm_cells.append((src_cell.row, src_cell.column))
+
+    # auto_w → 최종 col_widths
+    for cl, w in auto_w.items():
+        col_widths[cl] = max((w + 4) * 1.3, default_col_w)
+    if "I" in col_widths:
+        col_widths["I"] *= 1.25  # I열 추가 확장
+
+    # 행 높이
+    row_heights: dict[int, float] = {}
+    row_hidden: dict[int, bool] = {}
+    for row_idx, row_dim in src_ws.row_dimensions.items():
+        if row_dim.height:
+            row_heights[row_idx] = row_dim.height
+        if row_dim.hidden:
+            row_hidden[row_idx] = True
+
+    # 병합 범위
+    merges = [str(mr) for mr in list(src_ws.merged_cells.ranges)]
+
+    # 탭 색상
+    tab_color = copy(src_ws.sheet_properties.tabColor) if src_ws.sheet_properties.tabColor else None
+
+    # 시트 기본값
+    sheet_default_col_w = src_ws.sheet_format.defaultColWidth
+    sheet_default_row_h = src_ws.sheet_format.defaultRowHeight
+
+    # CPM 보정용 Border (회사 무관 공유)
     _thin = Side(style="thin")
-    _border_fix = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
-    for row in dst_ws.iter_rows(min_row=1, max_row=max_row,
-                                min_col=1, max_col=max_col):
-        for cell in row:
-            if isinstance(cell, MergedCell):
-                continue
-            if cell.value and "COST PER THOUSAND" in str(cell.value).upper():
-                cell.border = _border_fix
+    cpm_border = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+
+    template = {
+        "max_row":             max_row,
+        "max_col":             max_col,
+        "tab_color":           tab_color,
+        "sheet_default_col_w": sheet_default_col_w,
+        "sheet_default_row_h": sheet_default_row_h,
+        "col_widths":          col_widths,
+        "col_hidden":          col_hidden,
+        "row_heights":         row_heights,
+        "row_hidden":          row_hidden,
+        "merges":              merges,
+        "cells":               cells,
+        "cpm_cells":           cpm_cells,
+        "cpm_border":          cpm_border,
+    }
+
+    if _key is not None:
+        _PL_TEMPLATE_CACHE[_key] = template
+        while len(_PL_TEMPLATE_CACHE) > _PL_TEMPLATE_CACHE_MAX:
+            _PL_TEMPLATE_CACHE.popitem(last=False)
+    return template
+
+
+def _copy_price_list_sheet(wb: Workbook, price_list_file) -> None:
+    """원본 엑셀 첫 번째 시트를 'GMP Price List' 탭으로 복제.
+    템플릿 캐시 사용으로 첫 회사 외에는 ~0.1초.
+    """
+    template = _get_pl_template(price_list_file)
+    if template is None:
+        return
+
+    dst_ws = wb.create_sheet("GMP Price List")
+    dst_ws.sheet_view.showGridLines = False
+
+    if template["tab_color"] is not None:
+        dst_ws.sheet_properties.tabColor = template["tab_color"]
+
+    if template["sheet_default_col_w"]:
+        dst_ws.sheet_format.defaultColWidth = template["sheet_default_col_w"]
+    if template["sheet_default_row_h"]:
+        dst_ws.sheet_format.defaultRowHeight = template["sheet_default_row_h"]
+
+    # 열 너비/숨김
+    for cl, w in template["col_widths"].items():
+        dst_ws.column_dimensions[cl].width = w
+    for cl in template["col_hidden"]:
+        dst_ws.column_dimensions[cl].hidden = True
+
+    # 행 높이/숨김
+    for row_idx, h in template["row_heights"].items():
+        dst_ws.row_dimensions[row_idx].height = h
+    for row_idx in template["row_hidden"]:
+        dst_ws.row_dimensions[row_idx].hidden = True
+
+    # 병합 범위
+    for mr in template["merges"]:
+        try:
+            dst_ws.merge_cells(mr)
+        except Exception:
+            pass
+
+    # 셀 값 + 스타일 — 캐시된 인스턴스를 그대로 사용 (copy() 안 함)
+    for r, c, v, font_, fill_, border_, align_, num_fmt, prot_ in template["cells"]:
+        dst_cell = dst_ws.cell(row=r, column=c)
+        if isinstance(dst_cell, MergedCell):
+            continue
+        dst_cell.value = v
+        if font_ is not None:
+            dst_cell.font      = font_
+            dst_cell.fill      = fill_
+            dst_cell.border    = border_
+            dst_cell.alignment = align_
+            dst_cell.number_format = num_fmt
+            if prot_ is not None:
+                dst_cell.protection = prot_
+
+    # CPM 보정
+    cpm_border = template["cpm_border"]
+    for r, c in template["cpm_cells"]:
+        cell = dst_ws.cell(row=r, column=c)
+        if not isinstance(cell, MergedCell):
+            cell.border = cpm_border
 
 
 # ─────────────────────────────────────────────────────────────────────────────
