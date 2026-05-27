@@ -2210,6 +2210,23 @@ def _unique_skus_for_account(tmp_path: str, billing_month: str,
         usage_by_name[nm] = usage_by_name.get(nm, 0) + int(r.get("usage_amount") or 0)
     return sorted(nm for nm, u in usage_by_name.items() if u > 0)
 
+
+def _project_names_for_account(tmp_path: str, billing_month: str,
+                                account: str | None) -> list[str]:
+    """선택된 계정의 CSV 에서 등장하는 프로젝트 이름 리스트 (정렬).
+    per_project 모드 회사의 프로젝트별 SKU 노출 설정 UI 에서 사용.
+    """
+    rows = preprocess_usage_file(
+        tmp_path, billing_month, company_filter=account
+    )
+    seen: dict[str, str] = {}  # project_id → project_name (첫 등장 우선)
+    for r in rows:
+        pid = (r.get("project_id") or "").strip()
+        pname = (r.get("project_name") or "").strip() or pid
+        if pname and pname not in seen.values():
+            seen[pid or pname] = pname
+    return sorted(set(seen.values()))
+
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="SPH GMP 정산 시스템",
@@ -4427,6 +4444,94 @@ if True:
                                 on_click=_on_hidden_remove,
                                 args=(_order_account_key, _hs),
                             )
+
+        # ═══ 좌측 추가: per_project 모드 회사 전용 프로젝트별 SKU 노출 ═══
+        # 회사가 per_project 모드이면 프로젝트마다 다른 SKU 셋을 노출할 수 있도록
+        # 별도 영역 제공. 위의 회사 단위 SKU 에디터는 fallback 으로 사용됨 (빈
+        # 설정인 프로젝트는 회사 기본). 데이터 저장: saved_orders.json 에
+        # "회사__proj__프로젝트명" 키 (Phase 1 인프라).
+        _company_mode_curr = _load_billing_modes().get(
+            _order_account_key, BILLING_MODE_ACCOUNT
+        )
+        if _company_mode_curr == BILLING_MODE_PER_PROJECT and selected_company:
+            with col_left, st.container(border=True, key="proj_sku_panel"):
+                st.markdown("#### 🗂 프로젝트별 SKU 노출 (per_project 모드 전용)")
+                st.caption(
+                    "이 회사가 **per_project** 모드일 때 프로젝트마다 다른 SKU 셋을 "
+                    "노출할 수 있습니다. 비워두면 위 회사 기본 SKU 순서가 그대로 사용됩니다 "
+                    "(fallback)."
+                )
+                _proj_names_here = _project_names_for_account(
+                    str(tmp_input_path), billing_month, selected_company
+                )
+                if not _proj_names_here:
+                    st.caption("이번 CSV 에 해당 회사의 프로젝트가 없습니다.")
+                else:
+                    # 회사 기본 SKU 후보 — 위 에디터의 '_initial' (prefix 제거 버전).
+                    # 위 영역 변수는 with 블록 안이라 여기서 못 씀 → 다시 계산.
+                    _base_saved = list(_saved_for_this)
+                    _base_manual_extra = [
+                        m for m in _manual_skus_saved
+                        if m not in set(_saved_for_this)
+                        and m not in set(_found_skus)
+                    ]
+                    _base_new = [
+                        n for n in _found_skus
+                        if n not in set(_saved_for_this)
+                    ]
+                    _company_base_skus = (
+                        _base_saved + _base_new + _base_manual_extra
+                    )
+                    _all_proj_orders = _load_all_project_orders(selected_company)
+                    for _pname in _proj_names_here:
+                        _has_setting = _pname in _all_proj_orders
+                        _badge = "✅" if _has_setting else "🔁"
+                        _suffix = (
+                            f" — {len(_all_proj_orders[_pname])}개 설정됨"
+                            if _has_setting else " — 회사 기본 사용"
+                        )
+                        with st.expander(f"{_badge} {_pname}{_suffix}", expanded=False):
+                            _current = list(_all_proj_orders.get(_pname, []))
+                            # multiselect — 옵션은 회사 SKU 후보 + 기존 설정 중 회사
+                            # 후보에 없는 항목도 포함 (사용자가 수동 추가했던 것)
+                            _options_all = list(_company_base_skus)
+                            for _x in _current:
+                                if _x not in _options_all:
+                                    _options_all.append(_x)
+                            _selected = st.multiselect(
+                                "이 프로젝트에 노출할 SKU 순서 (선택 순서가 노출 순서)",
+                                options=_options_all,
+                                default=_current,
+                                key=f"_proj_sku_ms::{selected_company}::{_pname}",
+                                help=(
+                                    "체크한 SKU 만 이 프로젝트의 invoice 에 표시. "
+                                    "비우면 회사 기본 SKU 순서 사용 (fallback)."
+                                ),
+                            )
+                            # 자동 저장
+                            if _selected != _current:
+                                _save_project_order(
+                                    selected_company, _pname, _selected
+                                )
+                                st.toast(
+                                    f"💾 '{_pname}' SKU 순서 저장 ({len(_selected)}개)",
+                                    icon="🗂",
+                                )
+                                # rerun 으로 배지/카운트 갱신
+                                st.rerun()
+                            # 회사 기본으로 초기화 (=키 삭제, fallback)
+                            if _has_setting:
+                                if st.button(
+                                    "🔄 회사 기본으로 초기화 (=fallback)",
+                                    key=f"_reset_proj_sku::{selected_company}::{_pname}",
+                                    help="이 프로젝트의 설정을 삭제하고 회사 기본 SKU 순서 사용",
+                                ):
+                                    _save_project_order(selected_company, _pname, [])
+                                    st.toast(
+                                        f"🔄 '{_pname}' 초기화 — 회사 기본 사용",
+                                        icon="🔄",
+                                    )
+                                    st.rerun()
 
         # ═══ 우측: 과금 방식 / 통화·환율 / 다운로드 옵션(+정산 시작) ═══
         with col_right:
